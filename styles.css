@@ -1,0 +1,18 @@
+/* Project Master — 全部样式限制在 .pm- 前缀作用域内（agent.md §2.1/§2.2） */
+
+.pm-dashboard-root {
+	padding: var(--size-4-3);
+	color: var(--text-normal);
+	background: var(--background-primary);
+}
+
+.pm-dashboard-root h2 {
+	color: var(--text-normal);
+	font-size: var(--font-ui-large);
+	margin: 0 0 var(--size-4-2) 0;
+}
+
+.pm-dashboard-root p {
+	color: var(--text-muted);
+	font-size: var(--font-ui-medium);
+}

@@ -1,0 +1,28 @@
+{
+  "name": "project-master",
+  "version": "0.1.0",
+  "description": "Manage projects with an interactive Gantt dashboard",
+  "main": "main.js",
+  "type": "module",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+    "typecheck": "tsc -noEmit -skipLibCheck",
+    "test": "vitest run",
+    "lint": "eslint src tests"
+  },
+  "keywords": [],
+  "author": "Luna Jiang",
+  "license": "MIT",
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@types/node": "^22.10.0",
+    "builtin-modules": "^4.0.0",
+    "esbuild": "^0.25.0",
+    "eslint": "^9.18.0",
+    "eslint-plugin-obsidianmd": "^0.1.6",
+    "obsidian": "^1.8.7",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}
