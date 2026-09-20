@@ -1,6 +1,6 @@
-import { App, ItemView, Notice, TFile, WorkspaceLeaf } from "obsidian";
+import { App, getIconIds, ItemView, Notice, TFile, WorkspaceLeaf } from "obsidian";
 import { buildGanttModel, GanttModel } from "../gantt/gantt-model";
-import { exportMermaid, wrapInMarkers } from "../gantt/mermaid-export";
+import { exportableRows, exportMermaid, wrapInMarkers } from "../gantt/mermaid-export";
 import { GanttView, ZoomAnchor } from "../gantt/gantt-view";
 import { MermaidTargetModal } from "../modals/mermaid-target-modal";
 import { NewProjectModal } from "../modals/new-project-modal";
@@ -25,18 +25,36 @@ import {
 	NoteLink,
 	toSectionSpecs,
 } from "../services/grouping-service";
-import { applyManualOrderIfNeeded, projectOrderKey } from "../services/manual-order";
+import {
+	applyManualOrderIfNeeded,
+	mergeVisibleOrder,
+	projectOrderKey,
+} from "../services/manual-order";
 import { GroupingMode, ProjectItem, ProjectMasterSettings, SortMode, ZoomMode } from "../types";
 import { todayIso } from "../utils/date";
+import { pickViewIcon } from "../utils/icon";
 
 /** 视图类型 ID：pm- 前缀保证不与其他插件的 view type 冲突（agent.md §2.1） */
 export const VIEW_TYPE_PM_DASHBOARD = "pm-dashboard-view";
 
 /** 时间粒度阶梯：由粗到细，Ctrl +/- 在这条线上走 */
-const ZOOM_LADDER: readonly ZoomMode[] = ["month", "week", "day"];
-const ZOOM_LABELS: Record<ZoomMode, string> = { day: "日", week: "周", month: "月" };
+const ZOOM_LADDER: readonly ZoomMode[] = ["year", "month", "week", "day"];
+const ZOOM_LABELS: Record<ZoomMode, string> = {
+	year: "年",
+	month: "月",
+	week: "周",
+	day: "日",
+};
 
+/** 主区两块（Tab 栏在主区内部，两者同级） */
 type TabId = "gantt" | "mermaid";
+
+/** 只对甘特视图有意义的工具栏控件：面板模式下隐藏（用户口径 2026-09-20） */
+const GANTT_ONLY_CLASS = "pm-toolbar__gantt-only";
+const TAB_LABELS: Record<TabId, string> = { gantt: "甘特图", mermaid: "Mermaid 预览" };
+const TAB_IDS: readonly TabId[] = ["gantt", "mermaid"];
+
+
 
 /**
  * 视图对插件的依赖（接口注入而非直接引用插件类）。
@@ -65,9 +83,10 @@ export interface DashboardHost {
  *   frontmatter → 索引/规范化 → filter/grouping 管道 → 渲染
  *   UI 编辑 → processFrontMatter → 事件驱动 → 索引 → 再渲染
  *
- * 右侧两个 Tab（用户要求 2026-09-20）：
- *   「甘特图」= 自绘交互式视图；「Mermaid」= 预览 + 编辑栏 + 导出选项。
- *   两者共用一份筛选/分组结果，切换 Tab 不会丢筛选状态。
+ * 主区两块（用户口径 2026-09-20 修订）：Tab 栏放在**主区内部**，
+ *   「甘特图」= 自绘交互式视图（唯一可编辑版本）；「Mermaid 预览」= 导出内容核对区。
+ * 两者同级、吃同一次 refresh 的模型；Tab 栏右侧常驻同步状态，
+ * 所以「预览是不是过期了」不靠猜——即使不切过去也看得见。
  */
 export class DashboardView extends ItemView {
 	/**
@@ -79,15 +98,27 @@ export class DashboardView extends ItemView {
 	private groupingMode: GroupingMode;
 	private sortMode: SortMode;
 	private zoom: ZoomMode;
+	/**
+	 * 主区当前显示哪一块。
+	 *
+	 * Tab 栏在**主区内部**（甘特图 / Mermaid 预览），所以两者是同级的两块，
+	 * 共享上面的筛选栏与左侧面板——而不是一层包住整页、把筛选栏也卷进去的 Tab。
+	 * 上下堆叠的版本两边都被挤扁（预览里的 mermaid 标签直接叠在一起），
+	 * 所以改用切换：谁在前台谁就拿满高度。
+	 */
 	private activeTab: TabId = "gantt";
 	private sideCollapsed = false;
+	/** 面板模式（面板内容铺满整页的卡片视图）。与「收起侧栏」是两件事，互不替代 */
+	private panelMode = false;
+	/** 进面板模式前甘特时间轴的滚动位置（祖先 display:none 会把它清零，退出时还原） */
+	private ganttScroll: { left: number; top: number } | null = null;
 	/**
 	 * 折叠的分组 key（folder 模式是文件夹路径，值模式是 objective/area 值）。
 	 * 一份状态同时喂给左面板卡片与甘特分节——两处折叠永远一致。
 	 */
 	private readonly collapsedKeys = new Set<string>();
-	/** Mermaid 编辑栏草稿：非 null 时优先于「按当前筛选生成」的版本 */
-	private mermaidDraft: string | null = null;
+	/** 最近一次由甘特模型生成的 mermaid 全文（预览与导出的唯一来源） */
+	private lastGenerated = "";
 	/** 缩放锚点：本轮 refresh 后要让甘特把该日期固定回原位 */
 	private pendingAnchor: ZoomAnchor | null = null;
 
@@ -96,11 +127,14 @@ export class DashboardView extends ItemView {
 	private gantt: GanttView | null = null;
 	private mermaidPanel: MermaidPanel | null = null;
 
+	private rootEl: HTMLElement | null = null;
 	private bodyEl: HTMLElement | null = null;
+	private ganttHostEl: HTMLElement | null = null;
 	private mermaidHostEl: HTMLElement | null = null;
+	private mermaidStatusEl: HTMLElement | null = null;
+	private tabButtons: Partial<Record<TabId, HTMLButtonElement>> = {};
 	private issuesEl: HTMLElement | null = null;
 	private statsEl: HTMLElement | null = null;
-	private tabButtons: Partial<Record<TabId, HTMLButtonElement>> = {};
 	private groupingSelect: HTMLSelectElement | null = null;
 	private zoomSelect: HTMLSelectElement | null = null;
 
@@ -128,7 +162,8 @@ export class DashboardView extends ItemView {
 	}
 
 	getIcon(): string {
-		return "layout-dashboard";
+		// 与侧栏 ribbon 共用同一个来源，免得两处各写一份图标名、改一处漏一处
+		return pickViewIcon(getIconIds());
 	}
 
 	// ────────────────────────────── 生命周期 ──────────────────────────────
@@ -136,8 +171,8 @@ export class DashboardView extends ItemView {
 	async onOpen(): Promise<void> {
 		// 根容器：pm- 前缀，全部样式限制在此作用域内（agent.md §2.1/§2.2）
 		const root = this.contentEl.createDiv({ cls: "pm-dashboard-root" });
+		this.rootEl = root;
 		this.buildToolbar(root);
-		this.buildTabBar(root);
 		this.buildFilterBar(root);
 		this.issuesEl = root.createDiv({ cls: "pm-issues" });
 		this.buildBody(root);
@@ -147,7 +182,6 @@ export class DashboardView extends ItemView {
 		// 注册在 contentEl 上：只要视图内有焦点就能收到，且不占用全局快捷键。
 		this.registerDomEvent(this.contentEl, "keydown", (evt) => this.onKeyDown(evt));
 
-		this.applyTabVisibility();
 		this.refresh();
 	}
 
@@ -181,6 +215,8 @@ export class DashboardView extends ItemView {
 			["folder", "按文件夹分组"],
 			["objective", "按目标分组"],
 			["area", "按领域分组"],
+			// 标签里点明它会分成哪几块：叫「不分组」却出现三块，不说明一句会让人以为坏了
+			["none", "不分组（按资料情况）"],
 		] as [GroupingMode, string][]) {
 			grouping.createEl("option", { value, text: label });
 		}
@@ -196,7 +232,7 @@ export class DashboardView extends ItemView {
 
 		// 时间粒度：既是当前档位的指示器，也是最直观的「恢复」入口
 		const zoom = actions.createEl("select", {
-			cls: "dropdown pm-toolbar__select",
+			cls: `dropdown pm-toolbar__select ${GANTT_ONLY_CLASS}`,
 			// 快捷键说明放在底部统计行里（那里能一并说明 Ctrl+0 恢复），这里只留无障碍标签
 			attr: { "aria-label": "时间粒度" },
 		});
@@ -210,14 +246,24 @@ export class DashboardView extends ItemView {
 			this.refresh();
 		});
 
-		this.addButton(actions, "恢复缩放", () => this.resetZoom());
-
-		this.addButton(actions, "全部展开", () => this.setAllCollapsed(false));
-		this.addButton(actions, "全部收起", () => this.setAllCollapsed(true));
-		this.addButton(actions, this.sideCollapsed ? "展开面板" : "收起面板", (button) => {
-			this.sideCollapsed = !this.sideCollapsed;
-			this.bodyEl?.toggleClass("pm-body--collapsed", this.sideCollapsed);
-			button.setText(this.sideCollapsed ? "展开面板" : "收起面板");
+		// 以下四个只对甘特视图有意义：面板模式下由 CSS 隐藏（用户口径 2026-09-20）
+		this.addButton(actions, "恢复缩放", () => this.resetZoom(), GANTT_ONLY_CLASS);
+		this.addButton(actions, "全部展开", () => this.setAllCollapsed(false), GANTT_ONLY_CLASS);
+		this.addButton(actions, "全部收起", () => this.setAllCollapsed(true), GANTT_ONLY_CLASS);
+		// 侧栏显隐：名字刻意与「面板模式」区分开——那个是整页卡片视图，不是收放侧栏
+		this.addButton(
+			actions,
+			this.sideCollapsed ? "展开侧栏" : "收起侧栏",
+			(button) => {
+				this.sideCollapsed = !this.sideCollapsed;
+				this.bodyEl?.toggleClass("pm-body--collapsed", this.sideCollapsed);
+				button.setText(this.sideCollapsed ? "展开侧栏" : "收起侧栏");
+			},
+			GANTT_ONLY_CLASS,
+		);
+		this.addButton(actions, this.panelMode ? "退出面板模式" : "面板模式", (button) => {
+			this.setPanelMode(!this.panelMode);
+			button.setText(this.panelMode ? "退出面板模式" : "面板模式");
 		});
 	}
 
@@ -225,43 +271,45 @@ export class DashboardView extends ItemView {
 		host: HTMLElement,
 		label: string,
 		onClick: (button: HTMLButtonElement) => void,
+		cls = "",
 	): void {
 		const button = host.createEl("button", {
-			cls: "pm-btn",
+			cls: cls.length > 0 ? `pm-btn ${cls}` : "pm-btn",
 			text: label,
 			attr: { type: "button" },
 		});
 		this.registerDomEvent(button, "click", () => onClick(button));
 	}
 
-	private buildTabBar(root: HTMLElement): void {
-		const bar = root.createDiv({ cls: "pm-tabbar", attr: { role: "tablist" } });
-		for (const [id, label] of [
-			["gantt", "甘特图"],
-			["mermaid", "Mermaid 预览"],
-		] as [TabId, string][]) {
-			const button = bar.createEl("button", {
-				cls: "pm-tab",
-				text: label,
-				attr: { type: "button", role: "tab" },
-			});
-			this.tabButtons[id] = button;
-			this.registerDomEvent(button, "click", () => {
-				this.activeTab = id;
-				this.applyTabVisibility();
-				// Mermaid 面板需要在切回来时重新渲染预览（预览是异步渲染的，隐藏期间不必做）
-				if (id === "mermaid") this.mermaidPanel?.update();
-			});
-		}
-	}
-
-	private applyTabVisibility(): void {
-		for (const [id, button] of Object.entries(this.tabButtons)) {
+	/**
+	 * 切换主区显示的那一块。
+	 *
+	 * 顺序要紧：**先让容器可见，再渲染 mermaid**——mermaid 在 `display:none` 的容器里
+	 * 量不到尺寸，渲染出来是坏的（这正是之前上下堆叠时预览里标签叠成一团的原因之一）。
+	 */
+	private applyTab(): void {
+		for (const id of TAB_IDS) {
+			const button = this.tabButtons[id];
 			button?.toggleClass("is-active", id === this.activeTab);
 			button?.setAttribute("aria-selected", String(id === this.activeTab));
 		}
-		this.bodyEl?.toggleClass("is-hidden", this.activeTab !== "gantt");
+		this.ganttHostEl?.toggleClass("is-hidden", this.activeTab !== "gantt");
 		this.mermaidHostEl?.toggleClass("is-hidden", this.activeTab !== "mermaid");
+		if (this.activeTab === "mermaid") this.mermaidPanel?.update();
+	}
+
+	/** Tab 栏右侧的常驻状态：不切过去也能知道预览描述的是哪一份数据 */
+	private updateMermaidStatus(): void {
+		const status = this.mermaidStatusEl;
+		if (status === null) return;
+		const rows = this.lastModel?.rows.length ?? 0;
+		const visible = exportableRows(this.lastModel).length;
+		const hidden = rows - visible;
+		status.setText(
+			hidden > 0
+				? `预览由甘特图实时生成 · ${visible} 个项目（已按折叠隐藏 ${hidden} 个）`
+				: `预览由甘特图实时生成 · ${visible} 个项目`,
+		);
 	}
 
 	private buildFilterBar(root: HTMLElement): void {
@@ -307,43 +355,66 @@ export class DashboardView extends ItemView {
 		this.groupPanel = new GroupPanel(this, side, {
 			onOpenNote: (path) => this.openNote(path),
 			onFocusProject: (path) => this.focusProjectInGantt(path),
-			onEditProject: (path) => this.openEditorModal(path),
 			onToggleCollapse: (key) => this.toggleSection(key),
 			onHoverProject: (path) => this.hoverProject(path),
-			onReorderGroups: (keys) => void this.reorderGroups(keys),
-			onReorderProjects: (groupKey, paths) => void this.reorderProjects(groupKey, paths),
+			// 面板自带的编辑入口：长期项目不在甘特上，只能从这里改
+			onEditProject: (path) => this.openEditorModal(path),
 		});
 
 		const main = body.createDiv({ cls: "pm-main" });
+
+		// Tab 栏在主区内部：甘特图与 Mermaid 预览是同级的兄弟块，
+		// 共享上面的筛选栏与左侧面板（不再是一层包住整页的 Tab）
+		const tabbar = main.createDiv({ cls: "pm-tabbar", attr: { role: "tablist" } });
+		for (const id of TAB_IDS) {
+			const button = tabbar.createEl("button", {
+				cls: "pm-tab",
+				text: TAB_LABELS[id],
+				attr: { type: "button", role: "tab" },
+			});
+			this.tabButtons[id] = button;
+			this.registerDomEvent(button, "click", () => {
+				if (this.activeTab === id) return;
+				this.activeTab = id;
+				this.applyTab();
+			});
+		}
+		this.mermaidStatusEl = tabbar.createSpan({ cls: "pm-tabbar__status" });
+
 		const ganttHost = main.createDiv({ cls: "pm-gantt-host" });
+		this.ganttHostEl = ganttHost;
 		this.gantt = new GanttView(this, ganttHost, {
 			onOpenNote: (path) => this.openNote(path),
 			onEditProject: (path) => this.openEditorModal(path),
+			onColorChange: (path, color) => void this.setProjectColor(path, color),
 			onDatesChanged: (path, change) => void this.handleDatesChanged(path, change),
 			onToggleSection: (key) => this.toggleSection(key),
 			onHoverProject: (path) => this.hoverProject(path),
 			onZoom: (direction, anchor) => this.zoomStep(direction, anchor),
+			// 任务条配色来自设置，改完立刻重绘生效
+			getBarColors: () => this.host.settings.ganttBarColors,
+			// 顺序调整放在甘特侧栏（用户口径：面板只负责「看有哪些资料」）
+			onReorderSections: (keys) => void this.reorderGroups(keys),
+			onReorderProjects: (groupKey, paths) => void this.reorderProjects(groupKey, paths),
 		});
 
-		// Mermaid Tab：默认隐藏，切到该 Tab 时才展示（预览渲染有成本）
-		const mermaidHost = root.createDiv({ cls: "pm-mermaid-host is-hidden" });
+		// Mermaid 预览：与甘特图同级的另一个 Tab 面板（默认隐藏，切过去才渲染）
+		const mermaidHost = main.createDiv({ cls: "pm-mermaid-host is-hidden" });
 		this.mermaidHostEl = mermaidHost;
-		this.mermaidPanel = new MermaidPanel(this, this.host.app, mermaidHost, {
+		/*
+		 * 里层再套一个元素：MermaidPanel 会把自己的 pm-mermaid 加到传给它的宿主上。
+		 * 与甘特图同一条经验——Tab 面板的「显隐/占位」和面板自己的「内部排版」
+		 * 不该写在同一个元素上，否则两边各自写的 flex 属性会互相覆盖。
+		 */
+		const mermaidInner = mermaidHost.createDiv();
+		this.mermaidPanel = new MermaidPanel(this, this.host.app, mermaidInner, {
 			getSource: () => this.mermaidSource(),
-			isDirty: () => this.mermaidDraft !== null,
 			getOptions: () => this.mermaidOptions(),
 			onOptionsChange: (patch) => void this.handleMermaidOptions(patch),
-			onSourceEdit: (text) => {
-				this.mermaidDraft = text;
-				this.mermaidPanel?.update();
-			},
-			onRegenerate: () => {
-				this.mermaidDraft = null;
-				this.mermaidPanel?.update();
-			},
-			onCopy: () => void this.copyMermaid(),
-			onExportToNote: () => this.openExportModal(),
+			onExportCode: () => void this.exportMermaidCode(),
+			onWriteToNote: () => this.writeToNote(),
 		});
+		this.applyTab();
 	}
 
 	// ────────────────────────────── 刷新管道 ──────────────────────────────
@@ -359,6 +430,10 @@ export class DashboardView extends ItemView {
 		if (this.gantt === null || this.groupPanel === null) return;
 
 		const settings = this.host.settings;
+
+		// 面板卡片字号：设置里存百分比（100 = 跟随主题），这里换算成倍率交给样式表。
+		// 每次刷新都写一遍是有意的——改设置会走 onSettingsChanged → 刷新，所以这里就是生效点。
+		this.rootEl?.style.setProperty("--pm-card-font-scale", String(settings.cardFontScale / 100));
 		const all = this.host.getProjects();
 		const today = todayIso();
 
@@ -389,19 +464,26 @@ export class DashboardView extends ItemView {
 		});
 		this.lastModel = model;
 
+		// 甘特图（唯一的可编辑版本）与 Mermaid 预览共用这**一次**模型：
+		// 预览就是它的投影，「联动一致」因此是结构上保证的，不需要任何同步逻辑
+		this.lastGenerated = exportMermaid(model, settings);
+
 		this.gantt.render(model, this.zoom, today, this.pendingAnchor ?? undefined);
 		this.pendingAnchor = null;
 		this.groupPanel.render(groups, {
 			mode: this.groupingMode,
 			maxNotes: settings.maxNotesPerProject,
 			collapsedKeys: this.collapsedKeys,
-			// 拖动排序不受排序档限制：拖了就自动切「手动排序」，不必先切档再拖
-			draggable: true,
+			// 面板模式下甘特被整页顶掉：卡片不再挂「点击定位」的提示与行为
+			canLocateInGantt: !this.panelMode,
 		});
 		this.filterBar?.update();
 		this.renderIssues();
 		this.renderStats(model, filtered.length, all.length, today);
-		this.mermaidPanel?.update();
+		this.updateMermaidStatus();
+		// 不在前台就跳过渲染：mermaid 在 display:none 的容器里量不到尺寸，渲染出来是坏的
+		// （真需要时切过去，applyTab() 会补一次渲染）
+		if (this.activeTab === "mermaid") this.mermaidPanel?.update();
 	}
 
 	/** 筛选栏选的区间同时决定时间轴范围（看哪一段 = 筛哪一段） */
@@ -484,6 +566,35 @@ export class DashboardView extends ItemView {
 		this.refresh();
 	}
 
+	/**
+	 * 面板模式（用户口径 2026-09-20）：面板内容以卡片形式铺满整页，主区让位。
+	 *
+	 * 只切一个根 class、**不重渲染任何东西**：筛选、分组、折叠、滚动位置全留在原 DOM 里，
+	 * 退出即原样回归。类挂在根容器上，所以「隐藏只对甘特有意义的工具栏控件」和
+	 * 「面板铺满整页」两件事共用同一个开关。
+	 *
+	 * 唯一要手工保住的是甘特时间轴的滚动位置——祖先 `display:none` 会让浏览器
+	 * 把滚动容器归零，不还原的话用户会觉得「跳回最左边」。
+	 *
+	 * 侧栏处于收起状态时不额外处理：CSS 里面板模式规则排在 `.pm-body--collapsed` 之后，
+	 * 两者同开时以面板模式为准，退出后侧栏仍是收起的（状态没被改过）。
+	 */
+	private setPanelMode(enabled: boolean): void {
+		if (enabled) this.ganttScroll = this.gantt?.captureScroll() ?? null;
+		this.panelMode = enabled;
+		this.rootEl?.toggleClass("pm-panel-mode", enabled);
+		/*
+		 * 必须重绘：卡片上的「点击在甘特图中定位」提示与点击钩子都跟着这个开关走
+		 * （面板模式下甘特不在场，挂上去就是一张点了没反应的卡片）。
+		 * 重绘放在还原滚动位置**之前**，否则重渲染会把刚还原的位置又冲掉。
+		 */
+		this.refresh();
+		if (!enabled && this.ganttScroll !== null) {
+			this.gantt?.restoreScroll(this.ganttScroll);
+			this.ganttScroll = null;
+		}
+	}
+
 	private allGroupKeys(): string[] {
 		const groups = this.lastGroups;
 		if (groups === null) return [];
@@ -501,17 +612,25 @@ export class DashboardView extends ItemView {
 
 	/** 「在甘特中定位」：滚动 + 定时高亮；项目不在甘特上时给出明确反馈而不是静默失败 */
 	private focusProjectInGantt(path: string): void {
+		// 点面板里的项目 = 明确要看甘特图：先切回甘特 Tab，再滚动定位
 		if (this.activeTab !== "gantt") {
 			this.activeTab = "gantt";
-			this.applyTabVisibility();
+			this.applyTab();
 		}
 		const found = this.gantt?.scrollToProject(path) ?? false;
 		if (found) return;
 		const item = this.host.getProjects().find((p) => p.file.path === path);
-		const reason =
-			item !== undefined && item.status === "cancelled"
-				? "该项目已取消，按设置不上甘特图"
-				: "该项目缺起止日期，无法在甘特图上定位";
+		/*
+		 * 不在图上时要说清是**哪一种**不在：长期项目与「已取消」都有日期，
+		 * 一律答「缺起止日期」就是在说假话，用户会去补一个根本不缺的日期。
+		 * 长期项目那条顺带指向面板的「编辑」按钮——那是它唯一的界面入口。
+		 */
+		let reason = "该项目缺起止日期，无法在甘特图上定位";
+		if (item !== undefined && item.longTerm) {
+			reason = "该项目标记为长期项目，按设计不上甘特图（可在面板卡片上点「编辑」修改）";
+		} else if (item !== undefined && item.status === "cancelled") {
+			reason = "该项目已取消，按设置不上甘特图";
+		}
 		new Notice(reason);
 	}
 
@@ -524,14 +643,35 @@ export class DashboardView extends ItemView {
 		this.refresh();
 	}
 
-	/** 拖动组内项目：key 带分组模式前缀，避免 folder 路径与 area 值撞车 */
+	/**
+	 * 拖动组内项目：key 带分组模式前缀，避免 folder 路径与 area 值撞车。
+	 *
+	 * `paths` 是甘特侧栏里的可见顺序，其中不含「已取消 / 缺日期」这类没上甘特图的项目，
+	 * 所以先把它并回该分组的完整序列再落盘（否则被跳过的项目会被顶到组尾）。
+	 */
 	private async reorderProjects(groupKey: string, paths: string[]): Promise<void> {
 		const settings = this.host.settings;
 		const key = projectOrderKey(this.groupingMode, groupKey);
-		settings.manualProjectOrder = { ...settings.manualProjectOrder, [key]: paths };
+		settings.manualProjectOrder = {
+			...settings.manualProjectOrder,
+			[key]: mergeVisibleOrder(this.groupProjectPaths(groupKey), paths),
+		};
 		this.switchToManualSort();
 		await this.host.persistSettings();
 		this.refresh();
+	}
+
+	/** 某个分组的全部项目路径（含未上甘特图的项目——甘特侧栏看不到它们） */
+	private groupProjectPaths(groupKey: string): string[] {
+		const groups = this.lastGroups;
+		if (groups === null) return [];
+		for (const group of groups.quickGroups) {
+			if (group.folder === groupKey) return group.projects.map((item) => item.file.path);
+		}
+		for (const group of groups.normalGroups) {
+			if (group.key === groupKey) return group.projects.map((item) => item.file.path);
+		}
+		return [];
 	}
 
 	private switchToManualSort(): void {
@@ -629,12 +769,18 @@ export class DashboardView extends ItemView {
 			const parts: string[] = [];
 			const cancelled = reasons.get("cancelled");
 			const noDates = reasons.get("no-dates");
+			const longTerm = reasons.get("long-term");
 			if (cancelled !== undefined) parts.push(`已取消 ${cancelled}`);
 			if (noDates !== undefined) parts.push(`缺日期 ${noDates}`);
+			if (longTerm !== undefined) parts.push(`长期项目 ${longTerm}`);
 			stats.createSpan({
 				cls: "pm-stats__hint",
 				text: `（未上甘特图：${parts.join("、")}）`,
-				attr: { title: "「已取消」默认不上甘特图；「缺日期」需补全起止日期" },
+				attr: {
+					title:
+						"「已取消」默认不上甘特图；「缺日期」需补全起止日期；" +
+						"「长期项目」按设计只出现在面板（它没有确定的时间边界）",
+				},
 			});
 		}
 		stats.createSpan({ cls: "pm-stats__hint", text: `时间粒度：${ZOOM_LABELS[this.zoom]}刻度` });
@@ -678,6 +824,24 @@ export class DashboardView extends ItemView {
 				text: entries.map(describeIssue).join("；"),
 			});
 		}
+	}
+
+	/**
+	 * 右键菜单换色（用户要求 2026-09-20）：写回 frontmatter 的 color 字段。
+	 *
+	 * `null` 走的是同一套写入口——`patchFrontmatter` 见到 null 会**删字段**，
+	 * 于是「默认（按状态）」就是把自定义色清掉，而不是写一个空串进去。
+	 */
+	private async setProjectColor(path: string, color: string | null): Promise<void> {
+		try {
+			await this.host.service.patchFrontmatter(path, {
+				[this.host.settings.fieldMapping.color]: color,
+			});
+		} catch (error) {
+			new Notice(`颜色写回失败：${describeError(error)}`);
+		}
+		// 立刻刷新一次让颜色马上变；索引事件随后还会再刷一次（已被 scheduleRefresh 合并）
+		this.host.requestRefresh();
 	}
 
 	// ────────────────────────────── 动作 ──────────────────────────────
@@ -731,12 +895,18 @@ export class DashboardView extends ItemView {
 			todayMarker: settings.mermaidTodayMarker,
 			excludeWeekends: settings.mermaidExcludeWeekends,
 			excludeDates: settings.mermaidExcludeDates,
+			includeDates: settings.mermaidIncludeDates,
 		};
 	}
 
-	/** 草稿优先；否则按当前筛选/分组/排序状态生成 */
+	/**
+	 * 当前要展示/导出的 mermaid 全文。
+	 *
+	 * 没有草稿一说：甘特图是唯一可编辑版本，这里永远是它的最新投影（用户口径 2026-09-20）。
+	 */
 	private mermaidSource(): string {
-		if (this.mermaidDraft !== null) return this.mermaidDraft;
+		if (this.lastGenerated.length > 0) return this.lastGenerated;
+		// 首帧兜底（refresh 尚未跑过）
 		const model = this.lastModel;
 		if (model === null) return "```mermaid\ngantt\n```";
 		return exportMermaid(model, this.host.settings);
@@ -749,27 +919,39 @@ export class DashboardView extends ItemView {
 			settings.mermaidExcludeWeekends = patch.excludeWeekends;
 		}
 		if (patch.excludeDates !== undefined) settings.mermaidExcludeDates = patch.excludeDates;
-		// 改选项 = 要一份新的导出，手工草稿此时已过期
-		this.mermaidDraft = null;
+		if (patch.includeDates !== undefined) settings.mermaidIncludeDates = patch.includeDates;
 		await this.host.persistSettings();
+		// 选项变了要一份新的导出；预览重新生成即与甘特图重新对齐
+		this.lastGenerated = this.generatedMermaid();
 		this.mermaidPanel?.update();
+		this.updateMermaidStatus();
 	}
 
-	/** F1.7：导出当前视图状态（已筛选/分组/排序）为 mermaid 并复制 */
-	private async copyMermaid(): Promise<void> {
-		const source = this.mermaidSource();
-		const ok = await copyToClipboard(source, this.contentEl.ownerDocument);
+	/** 由当前甘特模型生成 mermaid（选项变化后立即重算，不必等下一次 refresh） */
+	private generatedMermaid(): string {
+		const model = this.lastModel;
+		return model === null ? "" : exportMermaid(model, this.host.settings);
+	}
+
+	/** 「导出代码」：把当前预览的源码复制走（面板上唯一的按钮） */
+	private async exportMermaidCode(): Promise<void> {
+		const count = exportableRows(this.lastModel).length;
+		if (count === 0) {
+			new Notice("当前没有展开的项目可导出（折叠的分节不会进导出）。");
+			return;
+		}
+		const ok = await copyToClipboard(this.mermaidSource(), this.contentEl.ownerDocument);
 		new Notice(
 			ok
-				? `已复制 Mermaid 代码（${this.lastModel?.rows.length ?? 0} 个项目）`
-				: "复制失败：剪贴板不可用，请改用「导出到笔记」",
+				? `已复制 Mermaid 代码（${count} 个项目）`
+				: "复制失败：剪贴板不可用，请改用「写入笔记」",
 		);
 	}
 
-	/** F1.7 增强项：写入指定笔记的标记块之间 */
-	private openExportModal(): void {
-		if ((this.lastModel?.rows.length ?? 0) === 0) {
-			new Notice("当前视图没有可导出的项目。");
+	/** F1.7「写入笔记」：写入指定笔记的落点标记之间 */
+	private writeToNote(): void {
+		if (exportableRows(this.lastModel).length === 0) {
+			new Notice("当前没有展开的项目可导出（折叠的分节不会进导出）。");
 			return;
 		}
 		new MermaidTargetModal(this.host.app, (file) => {
@@ -795,6 +977,7 @@ export class DashboardView extends ItemView {
 		zoom: ZoomMode;
 		grouping: GroupingMode;
 		sort: SortMode;
+		/** 主区当前显示的那一块（甘特图 / Mermaid 预览，同级 Tab） */
 		tab: TabId;
 	} {
 		return {

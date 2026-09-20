@@ -4,6 +4,7 @@ import {
 	applyManualOrder,
 	applyManualOrderIfNeeded,
 	EMPTY_MANUAL_ORDER,
+	mergeVisibleOrder,
 	projectOrderKey,
 	reorderByKey,
 } from "../src/services/manual-order";
@@ -15,6 +16,38 @@ const projects = [
 	projectItem({ name: "b", path: "100 Projects/乙/b.md", dueDate: "2026-12-01" }),
 	projectItem({ name: "c", path: "100 Projects/丙/c.md", dueDate: "2026-06-01" }),
 ];
+
+/*
+ * 甘特侧栏的拖动只看得见「上了甘特图」的项目，被跳过的（已取消 / 缺日期）
+ * 不能因为这次拖动而掉到组尾——它们的位置必须原地钉住。
+ */
+describe("mergeVisibleOrder — 可见顺序并回完整序列", () => {
+	it("reorders only the visible slots and leaves the skipped projects pinned", () => {
+		// 完整：X（缺日期，甘特看不到）、A、B、C —— 甘特里把 C 拖到了最前
+		const merged = mergeVisibleOrder(["X", "A", "B", "C"], ["C", "A", "B"]);
+		expect(merged).toEqual(["X", "C", "A", "B"]);
+	});
+
+	it("keeps skipped projects pinned in their own slots even when interleaved", () => {
+		// 完整 [A, X2, B, X4, C]，甘特里把 C 拖到 B 前面 → 两个可见槽位对调，
+		// 被跳过的 X2 / X4 原地不动
+		const merged = mergeVisibleOrder(["A", "X2", "B", "X4", "C"], ["C", "B"]);
+		expect(merged).toEqual(["A", "X2", "C", "X4", "B"]);
+	});
+
+	it("is a no-op when the visible order already matches", () => {
+		const full = ["X", "A", "B"];
+		expect(mergeVisibleOrder(full, ["A", "B"])).toEqual(full);
+	});
+
+	it("falls back to the visible order when the full list is unknown", () => {
+		expect(mergeVisibleOrder([], ["B", "A"])).toEqual(["B", "A"]);
+	});
+
+	it("ignores an empty visible list", () => {
+		expect(mergeVisibleOrder(["A", "B"], [])).toEqual(["A", "B"]);
+	});
+});
 
 describe("reorderByKey — 基础重排语义", () => {
 	it("orders by the recorded keys", () => {

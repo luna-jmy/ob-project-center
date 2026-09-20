@@ -207,13 +207,16 @@ export function applyFilters(
  * 严格匹配语义：选了「开始年度 = 2026」就只留 `startDate` 落在 2026 的项目；
  * **无开始日期的项目不匹配任何年度**（否则这层筛选对没填日期的项目完全失效）。
  *
- * 刻意**不**套用 long-term 豁免：豁免是 `dateRange` 区间筛选沿袭现有脚本的规则，
- * 年度筛选是新增能力、目的是缩小范围，豁免它等于把这类项目又放回来。
- * 两处口径差异都在测试里写明了。
+ * long-term 豁免（用户口径 2026-09-20 修订）：原先这里刻意**不**豁免，理由是
+ * 「年度筛选就是为了缩小范围，豁免等于把这类项目又放回来」。实际用下来那条理由是错的
+ * ——长期项目本来就没有起止时间，于是它永远不匹配任何年度，而默认年度筛选恰好是
+ * 「只看本年度启动」：结果是**标了长期反而什么都看不见**，这个标记等于没兑现。
+ * 现在与区间筛选口径一致：两种筛选都豁免 longTerm。
  */
 function filterByYear(items: ProjectItem[], state: FilterState): ProjectItem[] {
 	if (state.startYear === null && state.endYear === null) return items;
 	return items.filter((item) => {
+		if (item.longTerm) return true;
 		if (state.startYear !== null && yearOf(item.startDate) !== state.startYear) {
 			return false;
 		}

@@ -372,20 +372,31 @@ describe("年度筛选（用户要求 2026-09-18：按开始年度/结束年度�
 		expect(applyFilters(items, stateWithYears(null, null))).toHaveLength(items.length);
 	});
 
-	it("does not exempt long-term projects (unlike the date-range filter)", () => {
+	/*
+	 * long-term 豁免（用户口径 2026-09-20 修订）。
+	 *
+	 * 原先这里**不**豁免，理由是「年度筛选就是为了缩小范围」。实际用下来那条理由是错的：
+	 * 长期项目本来就没有起止时间 → 永远不匹配任何年度 → 而默认年度筛选正是
+	 * 「只看本年度启动」→ 标了长期反而完全看不见，这个标记等于没兑现。
+	 * 现在两种筛选口径一致：都豁免 longTerm。
+	 */
+	it("exempts long-term projects from the year filter too (was: deliberately not exempt)", () => {
 		const withLongTerm = [
 			...items,
 			item({ name: "长期项目", startDate: "2020-01-01", longTerm: true }),
+			item({ name: "长期无日期", longTerm: true }),
 		];
 		// 区间筛选会豁免它
 		const rangeState = {
 			...defaultFilterState(),
 			dateRange: { preset: "custom" as const, start: "2026-01-01", end: "2026-12-31" },
 		};
-		expect(applyFilters(withLongTerm, rangeState).map((i) => i.file.name)).toContain("长期项目");
-		// 年度筛选不会豁免（新增能力，目的就是缩小范围）
+		expect(applyFilters(withLongTerm, rangeState).map((i) => i.file.name)).toEqual(
+			expect.arrayContaining(["长期项目", "长期无日期"]),
+		);
+		// 年度筛选同样豁免——关键在于「没有任何日期的长期项目」也能留下来
 		expect(applyFilters(withLongTerm, stateWithYears(2026, null)).map((i) => i.file.name)).toEqual(
-			["今年启动"],
+			["今年启动", "长期项目", "长期无日期"],
 		);
 	});
 });

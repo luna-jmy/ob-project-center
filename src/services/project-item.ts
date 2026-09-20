@@ -130,7 +130,16 @@ function parseDateField(
 	return parsed.iso;
 }
 
+/**
+ * 可选字符串规范化。
+ *
+ * **数字也收**：frontmatter 里 `priority: 2`、`objective: 2026` 手写出来就是数字
+ * （YAML 不引号即数字），只认字符串会把用户写的值悄悄吃掉——表现是
+ * 「优先级明明设了 2，条子却没有任何变化」，属于最难排查的那类失效：值就写在笔记里。
+ * 布尔不收，那属于开关类字段（见 normalizeBoolean）。
+ */
 function normalizeOptionalString(raw: unknown): string | null {
+	if (typeof raw === "number" && Number.isFinite(raw)) return String(raw);
 	if (typeof raw !== "string") return null;
 	const value = raw.trim();
 	return value.length > 0 ? value : null;

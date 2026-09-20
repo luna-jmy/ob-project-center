@@ -1,5 +1,6 @@
 import { ProjectMasterSettings, ProjectStatus } from "../types";
-import { isValidIso } from "../utils/date";
+import { resolveHolidayDates } from "../services/holiday-schedule";
+import { isCriticalPriority } from "./bar-colors";
 import { GanttModel, GanttRow } from "./gantt-model";
 
 /**
@@ -10,6 +11,7 @@ import { GanttModel, GanttRow } from "./gantt-model";
  * - `    dateFormat YYYY-MM-DD` / `    axisFormat %y-%m`；
  * - 仅当分节数 > 1 才输出 `    section <objective>`；
  * - 状态标记：completed → `done, `、active → `active, `，其余无标记；
+ * - 关键任务标记：priority 1（最高）/ 2（高）→ `crit, `（用户口径 2026-09-20，脚本无此规则）；
  * - 任务名清洗：去除非中英文数字字符（脚本正则原样沿用）；
  * - 每个分节后留一个空行。
  *
@@ -36,6 +38,21 @@ function statusMarker(status: ProjectStatus | null): string {
 }
 
 /**
+ * 关键任务标记（用户口径 2026-09-20）：priority 1（最高）/ 2（高）→ mermaid 的 `crit`。
+ *
+ * mermaid 规定标签（`active` / `done` / `crit` / `milestone`）必须写在冒号后的**最前面**、
+ * 以逗号分隔，标签之间不区分先后。我们本来就把状态标签放在最前，
+ * 所以 `crit` 追加到它前面即可，产物形如：
+ *     项目A :crit, done, 项目A, 2026-01-01, 2026-02-01
+ *
+ * 「哪些算关键任务」的判断放在 gantt/bar-colors，与自绘甘特图给条子描红圈的那一处同源，
+ * 免得出现「图上标红了、导出却没有 crit」这类漂移。
+ */
+function criticalMarker(priority: string | null): string {
+	return isCriticalPriority(priority) ? "crit, " : "";
+}
+
+/**
  * @param model 已按筛选/分组/排序产出的甘特模型（F1.7 要求导出的是「当前视图状态」）
  * @param settings 只读取标题配置
  */
@@ -44,17 +61,24 @@ export function exportMermaid(model: GanttModel, settings: ProjectMasterSettings
 	code += `    title ${settings.mermaidTitle}\n`;
 	code += "    dateFormat YYYY-MM-DD\n";
 	code += "    axisFormat %y-%m\n";
-	for (const directive of buildDirectives(settings)) {
+	for (const directive of buildDirectives(model, settings)) {
 		code += `${directive}\n`;
 	}
 	code += "\n";
 
-	// 导出有两条刻意的口径差异（都在测试里固化）：
-	// 1. 分节头只看「是否多于一个分节」，不受视图折叠状态影响——导出的是数据，不是当前视图；
-	// 2. 折叠分节里的项目照常导出，否则用户折叠一下就以为项目丢了。
-	const emitSectionHeaders = model.sections.length > 1;
+	/*
+	 * 导出 = **当前视图里看得见的那部分**（用户口径 2026-09-20 修订）。
+	 *
+	 * 早期口径是「导出的是数据，不是当前视图」，折叠分节也照导；
+	 * 实际用起来是反的：用户折叠分节就是为了把不关心的部分收起来，
+	 * 导出（尤其「写入笔记」）却把它写回去，等于白折叠。现在：
+	 * - 折叠的分节整体不出现（连分节头都不出）；
+	 * - 分节头按**可见**分节数判断，只剩一个可见分节时不出 section 行（对齐 projectGantt.js 口径）。
+	 */
+	const sections = model.sections.filter((section) => !section.collapsed);
+	const emitSectionHeaders = sections.length > 1;
 	const usedIds = new Map<string, number>();
-	for (const section of model.sections) {
+	for (const section of sections) {
 		if (emitSectionHeaders) {
 			code += `    section ${section.name}\n`;
 		}
@@ -69,10 +93,40 @@ export function exportMermaid(model: GanttModel, settings: ProjectMasterSettings
 }
 
 /**
+ * 这次导出实际会包含的行（折叠分节的行不算）。
+ *
+ * 给调用方判断「有没有内容可导出」与显示计数用——直接用 `model.rows` 会把
+ * 折叠掉的项目也数进去，于是出现「提示说导出了 16 个项目，图里只有 9 条」。
+ */
+export function exportableRows(model: GanttModel | null): GanttRow[] {
+	if (model === null) return [];
+	return model.sections
+		.filter((section) => !section.collapsed)
+		.flatMap((section) => section.rows);
+}
+
+/**
  * 导出选项 → mermaid 指令行（用户要求 2026-09-20）。
  * 顺序固定，保证同样的选项产出同样的文本（可被测试逐字比对）。
+ *
+ * `excludes` 与 `includes` 的配合（法定节假日 + 调休）：
+ * mermaid 的 `includes` 是**优先级最高**的工作日白名单——`isInvalidDate()` 里第一条就是
+ * 「命中 includes → 立刻判定为有效日」，所以它能盖过 `excludes weekends` 与具体日期排除。
+ * 于是国内日历可以这样表达：
+ *     excludes weekends
+ *     excludes 2026-10-01,2026-10-02   ← 法定假日
+ *     includes 2026-10-10              ← 调休补班（那天是周六，但要上班）
+ * 被 includes 捞回来的日子不会进图上那条灰色「非工作日」色带。
+ * （依据 mermaid 的 gantt.jison 与 ganttRenderer.drawExcludeDays，2026-09-20 核实；
+ *   官方文档只写了 excludes，没写 includes。）
+ *
+ * 日期清单有三个来源，合并后去重升序：
+ * 1. **年度排期表**（设置里按年份维护的区间）→ 按图跨越的年份自动套用，这是主力；
+ * 2. 面板上的「排除日期」输入（跨年度的临时补充，支持 `A~B` 区间）；
+ * 3. 面板上的「调休上班」输入（同上）。
+ * 两个清单各自去重、互不覆盖：同一天既在排除又在补班里时，由 mermaid 的优先级裁决。
  */
-function buildDirectives(settings: ProjectMasterSettings): string[] {
+function buildDirectives(model: GanttModel, settings: ProjectMasterSettings): string[] {
 	const lines: string[] = [];
 	if (!settings.mermaidTodayMarker) {
 		// mermaid 默认就画 today 竖线，所以要「关掉」才输出指令
@@ -81,33 +135,23 @@ function buildDirectives(settings: ProjectMasterSettings): string[] {
 	if (settings.mermaidExcludeWeekends) {
 		lines.push("    excludes weekends");
 	}
-	const dates = parseExcludeDates(settings.mermaidExcludeDates);
-	if (dates.length > 0) {
-		lines.push(`    excludes ${dates.join(",")}`);
+
+	const { exclude, include } = resolveHolidayDates(model.rangeStart, model.rangeEnd, settings);
+	if (exclude.length > 0) {
+		lines.push(`    excludes ${exclude.join(",")}`);
+	}
+	if (include.length > 0) {
+		lines.push(`    includes ${include.join(",")}`);
 	}
 	return lines;
-}
-
-/**
- * 排除日期输入 → 合法 ISO 日期列表。
- * 只接受 `YYYY-MM-DD` 且是真日历日期——mermaid 的 excludes 只认这个格式，
- * 传「9/1」这类写法会让整个 gantt 解析失败，宁可丢掉也不能污染导出。
- */
-export function parseExcludeDates(raw: string): string[] {
-	const out: string[] = [];
-	for (const chunk of raw.split(/[,，\n\s]+/)) {
-		const value = chunk.trim();
-		if (!isValidIso(value) || out.includes(value)) continue;
-		out.push(value);
-	}
-	return out;
 }
 
 function taskLine(row: GanttRow, usedIds: Map<string, number>): string {
 	const id = uniqueId(row.item.file.name, usedIds);
 	const cleaned = row.item.file.name.replace(TASK_NAME_STRIP, "");
 	const taskName = cleaned.length > 0 ? cleaned : id;
-	const marker = statusMarker(row.item.status);
+	// 标签必须写在冒号后的最前面（mermaid 语法），多个标签用逗号分隔
+	const marker = `${criticalMarker(row.item.priority)}${statusMarker(row.item.status)}`;
 	return `${id} :${marker}${taskName}, ${row.start}, ${row.end}`;
 }
 

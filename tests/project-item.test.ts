@@ -22,6 +22,28 @@ const fileInfo = {
 	folder: "100 Projects/官网改版",
 };
 
+/*
+ * frontmatter 里的数字：`priority: 2` / `objective: 2026` 手写出来就是**数字**（YAML 不引号即数字）。
+ * 规范化层一度只认字符串、把它们悄悄吃掉，表现是「优先级明明设了 2，条子却毫无变化」——
+ * 用户口径 2026-09-20 报的就是这个，值就写在笔记里，却找不出原因。
+ */
+describe("buildProjectItem — 数字型 frontmatter 值", () => {
+	it("keeps a numeric priority instead of dropping it", () => {
+		const result = buildProjectItem(fm({ priority: 2 }), fileInfo, DEFAULT_SETTINGS);
+		expect(result.item?.priority).toBe("2");
+	});
+
+	it("keeps other numeric scalars the same way", () => {
+		const result = buildProjectItem(fm({ objective: 2026 }), fileInfo, DEFAULT_SETTINGS);
+		expect(result.item?.objective).toBe("2026");
+	});
+
+	it("still drops values that are neither string nor number", () => {
+		const result = buildProjectItem(fm({ priority: true }), fileInfo, DEFAULT_SETTINGS);
+		expect(result.item?.priority).toBeNull();
+	});
+});
+
 describe("buildProjectItem — 识别规则（SPEC §2.1/§2.2）", () => {
 	it("builds an item for a type:project note with template fields", () => {
 		const result = buildProjectItem(fm(), fileInfo, DEFAULT_SETTINGS);

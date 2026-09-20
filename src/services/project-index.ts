@@ -92,6 +92,40 @@ export class ProjectIndex {
 		this.issues.delete(path);
 	}
 
+	/**
+	 * 重命名：**把条目整体搬到新路径**，而不是删掉再从新路径重读一遍。
+	 *
+	 * 为什么不重读（用户口径 2026-09-20：只改了笔记名、没换文件夹，项目却从面板上消失）：
+	 * metadataCache 的路径映射不是同步跟着 rename 走的，紧接着读新路径可能拿到
+	 * 「没有 frontmatter」——于是这个明明还在、内容一个字都没改的项目被判成「不是项目」，
+	 * 从索引里抹掉；而内容没变、不会再有 changed 事件，它就一直是缺的。
+	 *
+	 * 重命名不改 frontmatter，所以搬运是等价且确定的：只有 file 身份信息需要重算。
+	 * 旧路径本来就不在索引里（例如识别失败过）时才退回按新路径重新识别。
+	 *
+	 * @returns 是否在本索引范围内处理（范围外返回 false，调用方可忽略）
+	 */
+	rename(oldPath: string, newPath: string): boolean {
+		const item = this.items.get(oldPath);
+		const issues = this.issues.get(oldPath);
+		this.items.delete(oldPath);
+		this.issues.delete(oldPath);
+
+		const file = this.toFileInfo(newPath);
+		if (!this.isInScope(file)) {
+			return false;
+		}
+		if (item === undefined) {
+			this.indexFile(file);
+			return true;
+		}
+		this.items.set(newPath, { ...item, file });
+		if (issues !== undefined) {
+			this.issues.set(newPath, issues);
+		}
+		return true;
+	}
+
 	getAll(): ProjectItem[] {
 		return [...this.items.values()];
 	}

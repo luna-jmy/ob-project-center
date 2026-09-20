@@ -13,14 +13,29 @@ import { GroupSectionSpec, ProjectItem, ProjectMasterSettings } from "../types";
  * - 资料归集是**递归**的（子文件夹、孙文件夹都算）；
  * - 索引里的其他项目文档不计入资料数（它们是项目，不是资料）。
  *
- * ── 规则表（继承 ref/projectOverview.js），以及两处按新口径的修正 ────────
+ * ── 规则表（继承 ref/projectOverview.js），以及三处按新口径的修正 ────────
  * - 快速项目分区（仅 folder 模式）：扫描目录根层项目 → 「快速项目（根目录）」固定最前；
  *   路径段精确等于 quickProjectMarker → 分区止于标记段；标题 = 去扫描前缀后「/」→「 > 」；
  * - 正常分组：main-project: true 为代表；多项目且无 main-project → warning；
  * - 组排序：代表 due 降序 → 无日期在后 → key 码点序；
  * - 组内资料：**修正 1** 递归子文件夹归集（脚本只看同层，新模型下同层通常为空）；
  *   **修正 2** 同层的其他项目文档不再当资料（脚本会把它们列进笔记列表）；
+ *   **修正 3**（2026-09-20）递归时遇到「别的项目的地盘」整棵剪掉——见下；
  * - 截断仍按 maxNotesPerProject（0 = 不限，脚本语义）。
+ *
+ * ── 修正 3：别人的地盘不能算我的资料（用户口径 2026-09-20）─────────────
+ * 场景：一个还没资料的项就是一封**单独的项目笔记**，而它所在的目录里放着**好几个
+ * 项目文件夹**（典型的中间层目录，例如 `100 Projects/2026工作项目/某项目.md`）。
+ * 只按「递归该目录」收集，兄弟项目文件夹里的资料会全部算到它头上——
+ * 表现就是「一个明明没资料的项目，凭空长出十几条资料」。
+ *
+ * 口径（用户确认 2026-09-20）：**子树里（任意深度）放着项目文档的文件夹 = 那个项目的地盘**。
+ * 归集时自己的地盘照收，别人的地盘（及其子树）整棵剪掉。
+ *
+ * 于是「项目文件夹里的非项目子文件夹（如 `资料/`）仍然算资料」——
+ * 只要这个子文件夹里没有 `type: project` 的笔记就行。
+ * 这条规则同时表达了用户对自己 vault 的描述「带资料的项目文件夹没有子文件夹，
+ * 有子文件夹说明它还没资料」：那种情况下，每个子文件夹里都住着另一个项目文档。
  *
  * ── 供甘特图使用的分节 ─────────────────────────────────────────────
  * `toSectionSpecs()` 把分组结果转成甘特分节，两侧**共用同一份分组结果**，
@@ -182,42 +197,170 @@ export function isQuickProject(item: ProjectItem, settings: ProjectMasterSetting
 	return relative.split("/").includes(settings.quickProjectMarker);
 }
 
+/**
+ * 「不分组」模式三块分区的 key。
+ *
+ * 加 `kind:` 前缀是为了不跟文件夹路径 / objective / area 的值撞车：
+ * 这些 key 会被当作折叠状态与手动排序的键（同 manual-order 的 `${mode}::${key}` 口径）。
+ */
+const KIND_QUICK_KEY = "kind:quick";
+const KIND_WITH_MATERIALS_KEY = "kind:has-materials";
+const KIND_PLAIN_KEY = "kind:no-materials";
+
 export function groupProjects(
 	items: ProjectItem[],
 	settings: ProjectMasterSettings,
 	options: GroupingOptions = {},
 ): GroupingResult {
-	const base =
-		settings.defaultGrouping === "folder"
-			? groupByFolder(items, settings, options)
-			: groupByValue(items, settings, options);
+	const ctx = buildCollectContext(items, options);
 
 	const quickPaths = items
 		.filter((item) => isQuickProject(item, settings))
 		.map((item) => item.file.path);
 
-	// 资料按项目归集只在调用方提供了笔记清单时才有意义（否则整表为空）
-	const materialsByPath =
-		options.folderNotes === undefined
-			? {}
-			: buildMaterialsByPath(items, settings, options);
+	// 资料按项目归集只在调用方提供了笔记清单时才有意义（否则整表为空）。
+	// 注意顺序：不分组模式要按「有没有资料」分块，所以它必须先算出来。
+	const materialsByPath = ctx.hasFolderNotes ? buildMaterialsByPath(items, settings, ctx) : {};
+
+	const base =
+		settings.defaultGrouping === "folder"
+			? groupByFolder(items, settings, ctx)
+			: settings.defaultGrouping === "none"
+				? groupByKind(items, quickPaths, materialsByPath, settings, ctx)
+				: groupByValue(items, settings, ctx);
 
 	return { ...base, quickPaths, materialsByPath };
+}
+
+/**
+ * 「不分组」模式（用户口径 2026-09-20）：不按文件夹 / 目标 / 领域切，而是按
+ * **有没有资料** + **快速项目** 分成三块，一眼看出哪些项目还空着。
+ *
+ * 复用 `splitByKind()`：面板的卡片形态（带资料 → 独立框、不带资料 → 紧凑列表、
+ * 快速项目 → ⚡）用的就是它，别在这里再写第二份「什么算有资料」的口径。
+ *
+ * 顺序固定「快速项目 → 有资料 → 没资料」：快速项目在最前是本插件的既有惯例
+ * （folder 模式的「快速项目（根目录）」同样固定最前），面板与甘特两侧都按它排。
+ * 空的分区不出现。
+ */
+function groupByKind(
+	items: ProjectItem[],
+	quickPaths: string[],
+	materialsByPath: Record<string, NoteLink[]>,
+	settings: ProjectMasterSettings,
+	ctx: CollectContext,
+): GroupBuckets {
+	const buckets = splitByKind(items, new Set(quickPaths), materialsByPath);
+
+	const quickGroups: QuickGroup[] =
+		buckets.quick.length === 0
+			? []
+			: [{ folder: KIND_QUICK_KEY, title: "快速项目", projects: buckets.quick }];
+
+	const normalGroups: NormalGroup[] = [];
+	// useMainFlag 传 false：这里「一桶多个项目」是常态，不是 folder 模式那种
+	// 「多项目却没有 main-project」的数据问题，不该报 multiple-projects 警告
+	for (const [key, title, projects] of [
+		[KIND_WITH_MATERIALS_KEY, "有资料", buckets.withMaterials],
+		[KIND_PLAIN_KEY, "没资料", buckets.plain],
+	] as [string, string, ProjectItem[]][]) {
+		if (projects.length === 0) continue;
+		normalGroups.push(buildGroup(key, title, projects, false));
+	}
+
+	if (ctx.hasFolderNotes) {
+		// 资料是**逐项目**归集的：把每个项目自己的文件夹当作收集根并进来
+		// （快速项目没有自己的文件夹，其资料恒为空，见 buildMaterialsByPath）
+		for (const group of normalGroups) {
+			const folders = [...new Set(group.projects.map((p) => p.file.folder))];
+			attachNotes(group, folders, ctx, settings.maxNotesPerProject);
+		}
+	}
+
+	return { quickGroups, normalGroups };
+}
+
+/**
+ * 归集资料的解析结果。一次解析、两层（分组维度 / 项目维度）共用，
+ * 避免「什么算资料」的口径在多处各写一遍然后慢慢漂移。
+ */
+interface CollectContext {
+	folderNotes: Record<string, NoteLink[]>;
+	/** 调用方是否提供了笔记清单：没提供就不算资料（避免把「没数据」当成「没有资料」） */
+	hasFolderNotes: boolean;
+	/** 全部项目文档路径：它们不是资料 */
+	excludedProjects: Set<string>;
+	/** 「别人的地盘」：子树里有项目文档的文件夹 */
+	turfFolders: Set<string>;
+}
+
+/**
+ * 把某封笔记的**所有祖先文件夹**记进集合。
+ *
+ * 用整棵子树判定「这是谁的地盘」：只要子文件夹里（任意深度）存在 `type: project`
+ * 的笔记，那一片就不是资料（用户口径 2026-09-20）。逐层都记，
+ * 才能让 `资料/` 里藏了一个归档项目时，`资料/` 整体退出资料统计。
+ */
+function addAncestorFolders(path: string, into: Set<string>): void {
+	const segments = path.split("/");
+	for (let depth = segments.length - 1; depth > 0; depth -= 1) {
+		into.add(segments.slice(0, depth).join("/"));
+	}
+}
+
+function buildCollectContext(items: ProjectItem[], options: GroupingOptions): CollectContext {
+	// 索引里的全量项目路径优先：筛选只影响「显示什么」，不该改变 vault 的结构事实
+	// （被筛掉的项目，其文件夹依然是别人的地盘）。没传就退回当前项目集。
+	const paths = options.projectPaths ?? items.map((item) => item.file.path);
+	const turfFolders = new Set<string>();
+	for (const path of paths) {
+		addAncestorFolders(path, turfFolders);
+	}
+	// 当前项目集无条件并入：即使只有它自己，它的文件夹也是「有主的」
+	for (const item of items) {
+		addAncestorFolders(item.file.path, turfFolders);
+	}
+	return {
+		folderNotes: options.folderNotes ?? {},
+		hasFolderNotes: options.folderNotes !== undefined,
+		excludedProjects: new Set(options.projectPaths ?? []),
+		turfFolders,
+	};
+}
+
+/**
+ * 这个笔记文件夹是否落在**别人的地盘**里（含地盘本身）。
+ *
+ * 从笔记所在文件夹往上走：先撞到自己的收集根 → 属于自己；先撞到别人的地盘 → 不属于。
+ * 「自己的根优先」这条很重要：`官网改版/资料/` 向上会撞到根 `官网改版`（它自己也是地盘，
+ * 因为它下面有项目文档），先判根才能把 `资料/` 里的资料收进来。
+ */
+function isOutsideOwnTurf(
+	noteFolder: string,
+	roots: ReadonlySet<string>,
+	turfFolders: ReadonlySet<string>,
+): boolean {
+	let cursor = noteFolder;
+	for (;;) {
+		if (roots.has(cursor)) return false;
+		if (turfFolders.has(cursor)) return true;
+		const cut = cursor.lastIndexOf("/");
+		if (cut === -1) return false;
+		cursor = cursor.slice(0, cut);
+	}
 }
 
 /** 项目路径 → 它自己文件夹下的资料/笔记（快速项目恒为空） */
 function buildMaterialsByPath(
 	items: ProjectItem[],
 	settings: ProjectMasterSettings,
-	options: GroupingOptions,
+	ctx: CollectContext,
 ): Record<string, NoteLink[]> {
-	const folderNotes = options.folderNotes ?? {};
-	const excluded = excludeSet(options.projectPaths);
 	const out: Record<string, NoteLink[]> = {};
 	for (const item of items) {
 		out[item.file.path] = isQuickProject(item, settings)
 			? []
-			: collectNotes([item.file.folder], folderNotes, excluded, item.file.path);
+			: collectNotes([item.file.folder], ctx, item.file.path);
 	}
 	return out;
 }
@@ -232,7 +375,7 @@ interface GroupBuckets {
 function groupByFolder(
 	items: ProjectItem[],
 	settings: ProjectMasterSettings,
-	options: GroupingOptions,
+	ctx: CollectContext,
 ): GroupBuckets {
 	const rootQuick = new Map<string, ProjectItem[]>();
 	const markerQuick = new Map<string, ProjectItem[]>();
@@ -285,10 +428,9 @@ function groupByFolder(
 	}
 	normalGroups.sort((a, b) => compareByRepresentative(a, b));
 
-	if (options.folderNotes !== undefined) {
-		const excluded = excludeSet(options.projectPaths);
+	if (ctx.hasFolderNotes) {
 		for (const group of normalGroups) {
-			attachNotes(group, [group.key], options.folderNotes, excluded, settings.maxNotesPerProject);
+			attachNotes(group, [group.key], ctx, settings.maxNotesPerProject);
 		}
 	}
 
@@ -299,7 +441,7 @@ function groupByFolder(
 function groupByValue(
 	items: ProjectItem[],
 	settings: ProjectMasterSettings,
-	options: GroupingOptions,
+	ctx: CollectContext,
 ): GroupBuckets {
 	const buckets = new Map<string, ProjectItem[]>();
 	for (const item of items) {
@@ -322,12 +464,12 @@ function groupByValue(
 		return compareByRepresentative(a, b);
 	});
 
-	if (options.folderNotes !== undefined) {
-		const excluded = excludeSet(options.projectPaths);
+	if (ctx.hasFolderNotes) {
 		for (const group of normalGroups) {
 			// 值分组横跨多个文件夹：把成员项目各自的文件夹都并进来
+			// （它们都是「自己的根」，所以互相嵌套的成员项目不会被彼此剪掉）
 			const folders = [...new Set(group.projects.map((p) => p.file.folder))];
-			attachNotes(group, folders, options.folderNotes, excluded, settings.maxNotesPerProject);
+			attachNotes(group, folders, ctx, settings.maxNotesPerProject);
 		}
 	}
 
@@ -373,13 +515,11 @@ function compareByRepresentative(a: NormalGroup, b: NormalGroup): number {
 	return compareCodepoint(a.key, b.key);
 }
 
-function excludeSet(projectPaths: string[] | undefined): Set<string> {
-	return new Set(projectPaths ?? []);
-}
-
 /**
  * 归集资料/笔记（F3.3，用户口径）：
  * - **递归**：`folderNotes` 的 key 等于目标文件夹、或位于其下（`key/` 前缀）都算；
+ * - **剪掉别人的地盘**：沿途撞上「子树里有项目文档的文件夹」（且不是自己的收集根）
+ *   就整棵跳过——那是别的项目，不是我的资料（修正 3）；
  * - 剔除 `alsoExcludePath`（分组维度传代表项目，项目维度传项目自己）；
  * - 剔除全部项目文档（项目不是资料）；
  * - 按路径码点序稳定排序，保证同一份数据每次渲染顺序一致。
@@ -388,19 +528,20 @@ function excludeSet(projectPaths: string[] | undefined): Set<string> {
  */
 function collectNotes(
 	folders: string[],
-	folderNotes: Record<string, NoteLink[]>,
-	excludedProjects: Set<string>,
+	ctx: CollectContext,
 	alsoExcludePath: string | null,
 ): NoteLink[] {
+	const roots = new Set(folders);
 	const seen = new Set<string>();
 	const candidates: NoteLink[] = [];
 
 	for (const folder of folders) {
-		for (const [noteFolder, notes] of Object.entries(folderNotes)) {
+		for (const [noteFolder, notes] of Object.entries(ctx.folderNotes)) {
 			if (noteFolder !== folder && !noteFolder.startsWith(`${folder}/`)) continue;
+			if (isOutsideOwnTurf(noteFolder, roots, ctx.turfFolders)) continue;
 			for (const note of notes) {
 				if (note.path === alsoExcludePath) continue;
-				if (excludedProjects.has(note.path)) continue;
+				if (ctx.excludedProjects.has(note.path)) continue;
 				if (seen.has(note.path)) continue;
 				seen.add(note.path);
 				candidates.push(note);
@@ -416,12 +557,11 @@ function collectNotes(
 function attachNotes(
 	group: NormalGroup,
 	folders: string[],
-	folderNotes: Record<string, NoteLink[]>,
-	excludedProjects: Set<string>,
+	ctx: CollectContext,
 	maxNotesPerProject: number,
 ): void {
 	const repPath = group.representative !== null ? group.representative.file.path : null;
-	const candidates = collectNotes(folders, folderNotes, excludedProjects, repPath);
+	const candidates = collectNotes(folders, ctx, repPath);
 	const shown =
 		maxNotesPerProject === 0 ? candidates : candidates.slice(0, maxNotesPerProject);
 	group.notes = {

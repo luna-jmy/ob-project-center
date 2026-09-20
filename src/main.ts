@@ -1,5 +1,6 @@
-import { Plugin, TFile, WorkspaceLeaf } from "obsidian";
+import { getIconIds, Plugin, TFile, WorkspaceLeaf } from "obsidian";
 import { DashboardHost, DashboardView, VIEW_TYPE_PM_DASHBOARD } from "./views/dashboard-view";
+import { pickViewIcon } from "./utils/icon";
 import { ProjectMasterSettingTab } from "./settings";
 import { ProjectService } from "./services/project-service";
 import {
@@ -47,8 +48,12 @@ export default class ProjectMasterPlugin extends Plugin implements DashboardHost
 			(leaf: WorkspaceLeaf) => new DashboardView(leaf, this),
 		);
 
-		// 不注册默认快捷键（agent.md via 技能）
-		this.addRibbonIcon("layout-dashboard", "Open project dashboard", () => {
+		/*
+		 * 不注册默认快捷键（agent.md via 技能）。
+		 * 图标走 `pickViewIcon` 挑：原先写死的 `layout-dashboard` 正是 Obsidian 内置
+		 * 「白板（Canvas）」的图标，侧栏上两个图标撞脸（用户口径 2026-09-20）。
+		 */
+		this.addRibbonIcon(pickViewIcon(getIconIds()), "Open project dashboard", () => {
 			void this.activateView();
 		});
 
@@ -184,9 +189,14 @@ export default class ProjectMasterPlugin extends Plugin implements DashboardHost
 
 		this.registerEvent(
 			this.app.vault.on("rename", (file, oldPath) => {
-				this.index?.remove(oldPath);
 				if (file instanceof TFile) {
-					this.index?.update(file.path);
+					// 搬运而不是重读：重命名不改 frontmatter，重读反而可能读到
+					// 还没跟上新路径的缓存（见 ProjectIndex.rename 的注释）
+					this.index?.rename(oldPath, file.path);
+				} else {
+					// 文件夹改名：整棵子树都挪了，增量处理太容易漏，直接重建索引
+					this.index?.remove(oldPath);
+					void this.bootstrap();
 				}
 				this.folderNotesCache = null;
 				this.scheduleRefresh();

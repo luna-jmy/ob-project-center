@@ -1,4 +1,5 @@
 import { App, ColorComponent, Modal, Setting, TextComponent } from "obsidian";
+import { BAR_COLOR_PRESETS, isHexColor } from "../gantt/bar-colors";
 import { isColorLike } from "../services/normalize";
 import {
 	EditorValues,
@@ -47,7 +48,10 @@ export class ProjectEditorModal extends Modal {
 	private confirmingClear = false;
 	private saving = false;
 	private colorText: TextComponent | null = null;
+	/** 进度输入框：状态改成「完成」时要能顺手把框里的值一起改掉（见 onOpen 里的防呆） */
+	private progressText: TextComponent | null = null;
 	private colorPicker: ColorComponent | null = null;
+	private colorPresetsEl: HTMLElement | null = null;
 	private colorHintEl: HTMLElement | null = null;
 
 	constructor(
@@ -80,8 +84,22 @@ export class ProjectEditorModal extends Modal {
 				dropdown.addOption("", "（未设置）");
 				dropdown.setValue(this.values.status ?? "");
 				dropdown.onChange((value) => {
-					this.values.status =
-						value === "" ? null : (value as ProjectStatus);
+					const status = value === "" ? null : (value as ProjectStatus);
+					this.values.status = status;
+					/*
+					 * 防呆（用户口径 2026-09-20）：一改成「完成」，进度直接填 100。
+					 *
+					 * 起因是实打实的脏数据：不少项目状态已经改成完成、progress 还停在 30 / 50，
+					 * 甘特条上就成了「已完成却只推进一半」的怪样子（再加上半透明进度层，更像配色出错）。
+					 *
+					 * **只填不锁**：用户随后完全可以把它改成别的值再保存（例如实际只做到 80）。
+					 * 反向不做（完成 → 执行中 不回滚进度）：那一步多半是顺手改的，
+					 * 把他刚接受的 100 又抹掉反而添乱。
+					 */
+					if (status === "completed") {
+						this.values.progress = 100;
+						this.progressText?.setValue("100");
+					}
 				});
 			});
 
@@ -113,8 +131,9 @@ export class ProjectEditorModal extends Modal {
 
 		new Setting(contentEl)
 			.setName("进度")
-			.setDesc("0–100；留空表示未设置")
+			.setDesc("0–100；留空表示未设置。状态改成「完成」时会自动填 100，可再手动改")
 			.addText((text) => {
+				this.progressText = text;
 				text.inputEl.type = "number";
 				text.inputEl.min = "0";
 				text.inputEl.max = "100";
@@ -140,7 +159,7 @@ export class ProjectEditorModal extends Modal {
 
 		new Setting(contentEl)
 			.setName("长期项目")
-			.setDesc("开启后豁免日期区间筛选（现有规则）")
+			.setDesc("开启后豁免全部日期筛选，并且不上甘特图——只在面板里出现（没有确定的时间边界）")
 			.addToggle((toggle) => {
 				toggle.setValue(this.values.longTerm);
 				toggle.onChange((value) => {
@@ -238,14 +257,22 @@ export class ProjectEditorModal extends Modal {
 	}
 
 	/**
-	 * 甘特条颜色：文本框（吃任意 CSS 颜色，含 var(--x) 跟随主题）+ 取色器（只出 hex）。
-	 * 两者互相同步；无法识别的写法**不拦**，只在下面提示一句——
-	 * 真正卡住渲染的判定统一由 normalize 层负责，并在「数据问题」区回报。
+	 * 甘特条颜色（用户口径 2026-09-20：预设色块优先，不再让人一律去调 RGB）。
+	 *
+	 * 三件控件各司其职：
+	 * - **预设色块**：一键选主题色，这是最常用的路径；
+	 * - 文本框：吃任意 CSS 颜色（#hex / 颜色名 / var()），留给自定义；
+	 * - 取色器：只认 `#rrggbb`，留给「就要这个具体色值」的场景。
+	 *
+	 * 三者都走 `applyColor()` 这一个写入口，保证互相同步。无法识别的写法**不拦**，
+	 * 只在下面提示一句——真正卡住渲染的判定统一由 normalize 层负责，并在「数据问题」区回报。
 	 */
 	private renderColorSetting(host: HTMLElement): void {
 		const setting = new Setting(host)
 			.setName("甘特条颜色")
-			.setDesc("可填 #ff8800、var(--color-blue)、颜色名。留空则按项目状态用默认色。");
+			.setDesc(
+				"点色块选主题色；也可直接填 #ff8800、var(--color-blue)、颜色名。留空则按项目状态用默认色。",
+			);
 
 		setting.addText((text) => {
 			this.colorText = text;
@@ -253,24 +280,66 @@ export class ProjectEditorModal extends Modal {
 			text.setValue(this.values.color ?? "");
 			text.onChange((value) => {
 				const trimmed = value.trim();
-				this.values.color = trimmed.length === 0 ? null : trimmed;
-				if (trimmed.startsWith("#")) this.colorPicker?.setValue(trimmed);
-				this.updateColorHint();
+				// 不回写文本框：正在输入时同步会把光标顶到末尾、中文输入法候选框也会丢
+				this.applyColor(trimmed.length === 0 ? null : trimmed, false);
 			});
 		});
 
 		setting.addColorPicker((picker) => {
 			this.colorPicker = picker;
 			picker.setValue(toHexOrNeutral(this.values.color));
-			picker.onChange((value) => {
-				this.values.color = value;
-				this.colorText?.setValue(value);
-				this.updateColorHint();
-			});
+			picker.onChange((value) => this.applyColor(value, true));
 		});
+
+		// 预设色块独占一行：塞进 Setting 右上角的控件区会把那一行挤成一团
+		const presets = host.createDiv({ cls: "pm-color-presets" });
+		this.colorPresetsEl = presets;
+		for (const preset of BAR_COLOR_PRESETS) {
+			const swatch = presets.createEl("button", {
+				cls: `pm-color-swatch${preset.value === null ? " pm-color-swatch--default" : ""}`,
+				attr: { type: "button", title: preset.label, "aria-label": preset.label },
+			});
+			// 用 data-* 记住它代表哪个值：高亮时按值比对，不必再建一张映射表
+			swatch.dataset.color = preset.value ?? "";
+			/*
+			 * 颜色直接写到元素上，**不再中转自定义属性**。
+			 *
+			 * 原先写的是 `--pm-swatch-color: var(--color-red)`，再由样式表
+			 * `background: var(--pm-swatch-color, transparent)` 取用。这种「变量套变量」
+			 * 在弹窗里解析不出颜色，8 个色块全成了空心方框。
+			 * 同一张界面上的单层写法都是好的（「清除项目标记」的红底、斜纹色块的渐变色），
+			 * 所以问题出在中转这一步，不是颜色值本身。
+			 */
+			if (preset.value !== null) swatch.style.backgroundColor = preset.value;
+			swatch.addEventListener("click", () => this.applyColor(preset.value, true));
+		}
+		this.updateColorSwatches();
 
 		this.colorHintEl = host.createDiv({ cls: "pm-modal__hint pm-modal__hint--color" });
 		this.updateColorHint();
+	}
+
+	/**
+	 * 颜色的唯一写入口。
+	 * @param syncText 是否把值回写到文本框——从文本框自己触发的改动必须传 false（否则光标乱跳）
+	 */
+	private applyColor(value: string | null, syncText: boolean): void {
+		this.values.color = value;
+		if (syncText) this.colorText?.setValue(value ?? "");
+		// 取色器没有「不指定」状态：留空时回到中性色作为起点，它本身不写数据
+		if (value === null) this.colorPicker?.setValue(NEUTRAL_HEX);
+		else if (isHexColor(value)) this.colorPicker?.setValue(value);
+		this.updateColorSwatches();
+		this.updateColorHint();
+	}
+
+	private updateColorSwatches(): void {
+		const host = this.colorPresetsEl;
+		if (host === null) return;
+		const current = this.values.color ?? "";
+		for (const swatch of Array.from(host.querySelectorAll<HTMLElement>(".pm-color-swatch"))) {
+			swatch.classList.toggle("is-active", (swatch.dataset.color ?? "") === current);
+		}
 	}
 
 	private updateColorHint(): void {
@@ -347,7 +416,10 @@ export class ProjectEditorModal extends Modal {
 	}
 }
 
+/** 取色器的中性起点色（既不是「默认」也不属于任何预设） */
+const NEUTRAL_HEX = "#888888";
+
 /** 取色器只吃 hex：非 hex 的颜色（var()、颜色名）用一个中性色作为起点 */
 function toHexOrNeutral(color: string | null): string {
-	return color !== null && /^#[0-9a-f]{6}$/i.test(color) ? color : "#888888";
+	return color !== null && isHexColor(color) ? color : NEUTRAL_HEX;
 }

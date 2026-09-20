@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { migrateSettings, withConfigDir } from "../src/settings-migration";
-import { DEFAULT_SETTINGS, SETTINGS_VERSION } from "../src/types";
+import {
+	BAR_DURATION_MODES,
+	DEFAULT_SETTINGS,
+	GROUPING_MODES,
+	SETTINGS_VERSION,
+	SORT_MODES,
+	ZOOM_MODES,
+} from "../src/types";
 
 describe("设置迁移 — 幂等与容错（SPEC §5.5/§8）", () => {
 	it("fills in defaults for every missing field (v1 → v2 upgrade path)", () => {
@@ -40,11 +47,71 @@ describe("设置迁移 — 幂等与容错（SPEC §5.5/§8）", () => {
 		expect(migrated.statusAliases).toEqual(DEFAULT_SETTINGS.statusAliases);
 	});
 
+	/*
+	 * 用户口径 2026-09-20：资料子文件夹名**允许留空**（= 资料与项目文档同目录）。
+	 * 原来用的是 nonEmptyString，空串会被当成「没填」退回默认的「资料」，
+	 * 结果用户在设置里根本删不掉它（删到只剩中间态时被存了下来）。
+	 */
+	it("keeps an emptied materials folder name instead of restoring the default", () => {
+		expect(migrateSettings({ materialsFolderName: "" }).materialsFolderName).toBe("");
+		expect(migrateSettings({ materialsFolderName: "   " }).materialsFolderName).toBe("");
+		expect(migrateSettings({ materialsFolderName: " 资料 " }).materialsFolderName).toBe("资料");
+		// 只有类型不对才退回默认值（缺失字段同样走默认，见上一条用例）
+		expect(migrateSettings({ materialsFolderName: 123 }).materialsFolderName).toBe(
+			DEFAULT_SETTINGS.materialsFolderName,
+		);
+	});
+
+	/* 同上：快速项目标记也允许留空（空 = 只认扫描目录根层） */
+	it("keeps an emptied quick project marker instead of restoring the default", () => {
+		expect(migrateSettings({ quickProjectMarker: "" }).quickProjectMarker).toBe("");
+		expect(migrateSettings({ quickProjectMarker: "  " }).quickProjectMarker).toBe("");
+		expect(migrateSettings({ quickProjectMarker: " 快速项目 " }).quickProjectMarker).toBe(
+			"快速项目",
+		);
+		expect(migrateSettings({ quickProjectMarker: 5 }).quickProjectMarker).toBe(
+			DEFAULT_SETTINGS.quickProjectMarker,
+		);
+	});
+
 	it("survives null / undefined / non-object input", () => {
 		expect(migrateSettings(null)).toEqual(DEFAULT_SETTINGS);
 		expect(migrateSettings(undefined)).toEqual(DEFAULT_SETTINGS);
 		expect(migrateSettings("garbage")).toEqual(DEFAULT_SETTINGS);
 		expect(migrateSettings([1, 2, 3])).toEqual(DEFAULT_SETTINGS);
+	});
+
+	/*
+	 * 回归测试（2026-09-20）：迁移层的白名单曾经是手写的数组字面量，
+	 * 漏了后来加的 `year` —— 用户选了「年」档，一保存就被悄悄重置回「月」档。
+	 * 这里遍历**类型定义派生出来的全量清单**，所以以后再加一档会自动被覆盖到。
+	 */
+	it("keeps every zoom mode the type system allows", () => {
+		for (const zoom of ZOOM_MODES) {
+			expect(migrateSettings({ defaultZoom: zoom }).defaultZoom).toBe(zoom);
+		}
+		expect(migrateSettings({ defaultZoom: "季度" }).defaultZoom).toBe(
+			DEFAULT_SETTINGS.defaultZoom,
+		);
+	});
+
+	it("keeps every grouping / sort mode the type system allows", () => {
+		for (const mode of GROUPING_MODES) {
+			expect(migrateSettings({ defaultGrouping: mode }).defaultGrouping).toBe(mode);
+		}
+		for (const mode of SORT_MODES) {
+			expect(migrateSettings({ defaultSort: mode }).defaultSort).toBe(mode);
+		}
+	});
+
+	it("keeps every bar-duration mode the type system allows", () => {
+		for (const mode of BAR_DURATION_MODES) {
+			expect(migrateSettings({ ganttBarDuration: mode }).ganttBarDuration).toBe(mode);
+		}
+		// 坏值降级到默认，而不是原样带进渲染层
+		expect(migrateSettings({ ganttBarDuration: "自然日" }).ganttBarDuration).toBe(
+			DEFAULT_SETTINGS.ganttBarDuration,
+		);
 	});
 
 	it("keeps the user's data for fields that are valid", () => {
@@ -158,5 +225,48 @@ describe("设置迁移 — 运行时配置目录并入（不硬编码配置目�
 	it("ignores an empty config dir", () => {
 		const result = withConfigDir(migrateSettings(null), "");
 		expect(result.excludedFolders).toEqual(DEFAULT_SETTINGS.excludedFolders);
+	});
+});
+
+describe("设置迁移 — 法定节假日排期", () => {
+	it("defaults to an empty table", () => {
+		expect(migrateSettings(null).holidaySchedules).toEqual({});
+	});
+
+	it("keeps well-formed year entries as-is", () => {
+		const migrated = migrateSettings({
+			holidaySchedules: {
+				"2026": { holidays: "10-01~10-07", makeupWorkdays: "09-27, 10-10" },
+			},
+		});
+		expect(migrated.holidaySchedules).toEqual({
+			"2026": { holidays: "10-01~10-07", makeupWorkdays: "09-27, 10-10" },
+		});
+	});
+
+	it("drops entries whose key is not a four-digit year or whose value is not an object", () => {
+		const migrated = migrateSettings({
+			holidaySchedules: {
+				"2026": { holidays: "10-01", makeupWorkdays: "" },
+				"26": { holidays: "10-01", makeupWorkdays: "" },
+				abc: { holidays: "10-01", makeupWorkdays: "" },
+				"2027": "not-an-object",
+				"2028": [1, 2, 3],
+			},
+		});
+		expect(Object.keys(migrated.holidaySchedules)).toEqual(["2026"]);
+	});
+
+	it("fills a missing field with an empty string instead of dropping the year", () => {
+		const migrated = migrateSettings({
+			holidaySchedules: { "2026": { holidays: 7 } },
+		});
+		expect(migrated.holidaySchedules["2026"]).toEqual({ holidays: "", makeupWorkdays: "" });
+	});
+
+	it("survives garbage and stays idempotent", () => {
+		const once = migrateSettings({ holidaySchedules: "garbage" });
+		expect(once.holidaySchedules).toEqual({});
+		expect(migrateSettings(once)).toEqual(once);
 	});
 });

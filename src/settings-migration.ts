@@ -1,14 +1,19 @@
 import {
+	BAR_DURATION_MODES,
+	CARD_FONT_SCALE_RANGE,
 	DEFAULT_FIELD_MAPPING,
+	DEFAULT_GANTT_BAR_COLORS,
 	DEFAULT_SETTINGS,
 	FieldMappingConfig,
-	GroupingMode,
+	GanttBarColors,
+	GROUPING_MODES,
+	HolidayScheduleMap,
 	PROJECT_STATUSES,
 	ProjectMasterSettings,
 	ProjectStatus,
 	SETTINGS_VERSION,
-	SortMode,
-	ZoomMode,
+	SORT_MODES,
+	ZOOM_MODES,
 } from "./types";
 
 /**
@@ -18,11 +23,10 @@ import {
  * 1. **可重复执行**：migrate(migrate(x)) 与 migrate(x) 结果一致（幂等）。
  * 2. **失败保留原数据**：本函数是「全函数」——永不抛异常，逐字段降级到默认值。
  *    某个字段损坏只损失该字段，不会把整份配置重置掉。
+ *
+ * 枚举白名单不在这里手写：它们从 `types.ts` 的 `Record<T, true>` 派生，
+ * 漏写成员会编译报错（这个位置曾经静静漏掉过 `year`）。
  */
-
-const GROUPING_MODES: GroupingMode[] = ["folder", "objective", "area"];
-const SORT_MODES: SortMode[] = ["due-asc", "name", "priority"];
-const ZOOM_MODES: ZoomMode[] = ["day", "week", "month"];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -85,6 +89,26 @@ function pathListMap(value: unknown): Record<string, string[]> {
 	return out;
 }
 
+/**
+ * 年度节假日排期清洗：只保留「四位年份 → 两个字符串字段」的条目。
+ *
+ * 键必须是四位数字、值必须是对象，否则整条丢掉——排期是要拿去展开成日期清单的，
+ * 放进不可解析的东西只会在导出时变成一句莫名其妙的 mermaid 指令。
+ */
+export function holidayScheduleMap(value: unknown): HolidayScheduleMap | null {
+	if (!isRecord(value)) return null;
+	const out: HolidayScheduleMap = {};
+	for (const [key, raw] of Object.entries(value)) {
+		if (!/^\d{4}$/.test(key)) continue;
+		if (!isRecord(raw)) continue;
+		out[key] = {
+			holidays: typeof raw.holidays === "string" ? raw.holidays : "",
+			makeupWorkdays: typeof raw.makeupWorkdays === "string" ? raw.makeupWorkdays : "",
+		};
+	}
+	return out;
+}
+
 /** 只保留字符串值成员的映射表（设置页导入复用） */
 export function stringMap(value: unknown): Record<string, string> | null {
 	if (!isRecord(value)) return null;
@@ -120,6 +144,31 @@ function fieldMapping(value: unknown): FieldMappingConfig {
 }
 
 /**
+ * 面板卡片字号缩放（百分比整数）：非数字 / 越界一律退回默认。
+ *
+ * 越界当**无效**而不是夹到边界：把 900 悄悄变成 220，用户只会以为自己没改对。
+ */
+function cardFontScale(value: unknown): number {
+	if (typeof value !== "number" || !Number.isFinite(value)) {
+		return DEFAULT_SETTINGS.cardFontScale;
+	}
+	const rounded = Math.round(value);
+	return rounded >= CARD_FONT_SCALE_RANGE.min && rounded <= CARD_FONT_SCALE_RANGE.max
+		? rounded
+		: DEFAULT_SETTINGS.cardFontScale;
+}
+
+/** 甘特条配色清洗：四项各自判空，坏掉的那一项退回默认，其余原样保留 */
+function ganttBarColors(value: unknown): GanttBarColors {
+	if (!isRecord(value)) return { ...DEFAULT_GANTT_BAR_COLORS };
+	const out = { ...DEFAULT_GANTT_BAR_COLORS };
+	for (const key of Object.keys(DEFAULT_GANTT_BAR_COLORS) as (keyof GanttBarColors)[]) {
+		out[key] = nonEmptyString(value[key], DEFAULT_GANTT_BAR_COLORS[key]);
+	}
+	return out;
+}
+
+/**
  * 把任意来源的数据（旧版本 data.json / 损坏文件 / null）清洗成当前版本的完整设置。
  * 幂等：对已迁移数据再次调用不产生变化。
  */
@@ -129,10 +178,11 @@ export function migrateSettings(raw: unknown): ProjectMasterSettings {
 	return {
 		version: SETTINGS_VERSION,
 		scanFolders: stringArray(source.scanFolders) ?? [...DEFAULT_SETTINGS.scanFolders],
-		quickProjectMarker: nonEmptyString(
-			source.quickProjectMarker,
-			DEFAULT_SETTINGS.quickProjectMarker,
-		),
+		// 允许留空（用户口径 2026-09-20）：空 = 只认扫描目录根层的项目为快速项目
+		quickProjectMarker:
+			typeof source.quickProjectMarker === "string"
+				? source.quickProjectMarker.trim()
+				: DEFAULT_SETTINGS.quickProjectMarker,
 		excludedFolders: stringArray(source.excludedFolders) ?? [...DEFAULT_SETTINGS.excludedFolders],
 		chineseAliasCompat:
 			typeof source.chineseAliasCompat === "boolean"
@@ -145,6 +195,8 @@ export function migrateSettings(raw: unknown): ProjectMasterSettings {
 		),
 		dateFallbackDays: nonNegativeInt(source.dateFallbackDays, DEFAULT_SETTINGS.dateFallbackDays),
 		fieldMapping: fieldMapping(source.fieldMapping),
+		ganttBarColors: ganttBarColors(source.ganttBarColors),
+		cardFontScale: cardFontScale(source.cardFontScale),
 		statusAliases: statusAliasMap(source.statusAliases) ?? { ...DEFAULT_SETTINGS.statusAliases },
 		statusEmoji: stringMap(source.statusEmoji) ?? { ...DEFAULT_SETTINGS.statusEmoji },
 		statusOrder: statusOrderList(source.statusOrder),
@@ -169,10 +221,18 @@ export function migrateSettings(raw: unknown): ProjectMasterSettings {
 			typeof source.hideCancelledInGantt === "boolean"
 				? source.hideCancelledInGantt
 				: DEFAULT_SETTINGS.hideCancelledInGantt,
-		materialsFolderName: nonEmptyString(
-			source.materialsFolderName,
-			DEFAULT_SETTINGS.materialsFolderName,
-		),
+		/*
+		 * 允许留空（用户口径 2026-09-20）：空 = 不建子文件夹，资料与项目文档同目录。
+		 * 只有类型不对/缺失才退回默认值——原来用 nonEmptyString 会把空串也退回「资料」，
+		 * 于是用户根本删不掉它。
+		 */
+		materialsFolderName:
+			typeof source.materialsFolderName === "string"
+				? source.materialsFolderName.trim()
+				: DEFAULT_SETTINGS.materialsFolderName,
+		// 与 mermaidExcludeDates 同口径：允许为空（空 = 不用模板），只做去空白
+		newProjectTemplate:
+			typeof source.newProjectTemplate === "string" ? source.newProjectTemplate.trim() : "",
 		mermaidTitle: nonEmptyString(source.mermaidTitle, DEFAULT_SETTINGS.mermaidTitle),
 		mermaidTodayMarker:
 			typeof source.mermaidTodayMarker === "boolean"
@@ -184,6 +244,14 @@ export function migrateSettings(raw: unknown): ProjectMasterSettings {
 				: DEFAULT_SETTINGS.mermaidExcludeWeekends,
 		mermaidExcludeDates:
 			typeof source.mermaidExcludeDates === "string" ? source.mermaidExcludeDates : "",
+		mermaidIncludeDates:
+			typeof source.mermaidIncludeDates === "string" ? source.mermaidIncludeDates : "",
+		holidaySchedules: holidayScheduleMap(source.holidaySchedules) ?? {},
+		ganttBarDuration: enumValue(
+			source.ganttBarDuration,
+			BAR_DURATION_MODES,
+			DEFAULT_SETTINGS.ganttBarDuration,
+		),
 		manualGroupOrder: pathListMap(source.manualGroupOrder),
 		manualProjectOrder: pathListMap(source.manualProjectOrder),
 		mermaidSectionFallback: nonEmptyString(

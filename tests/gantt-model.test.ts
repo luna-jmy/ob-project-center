@@ -1,8 +1,158 @@
 import { describe, expect, it } from "vitest";
-import { buildGanttModel, rowIndexOf } from "../src/gantt/gantt-model";
+import { buildGanttModel, durationLabel, rowIndexOf } from "../src/gantt/gantt-model";
 import { projectItem, settings } from "./fixtures";
 
 const TODAY = "2026-09-18";
+
+/*
+ * 非工作日（2026-09-20）：自绘甘特图要自己把周末/节假日画成灰色列。
+ * mermaid 那边的 excludes 只能画底带且画在任务条后面，靠它用户验收不了「排除周末」。
+ * 口径由 services/holiday-schedule.ts 统一给出，这里只锁「模型有没有正确带出来」。
+ */
+/*
+ * 条上显示天数（用户要求 2026-09-20）。
+ * 「工作日」不是另立一套日历，而是复用非工作日清单（周末开关 + 节假日排期 − 补班日），
+ * 也就是导出 mermaid 用的那一份——图和导出因此不会各说各话。
+ */
+/*
+ * 长期项目不上甘特图（用户口径 2026-09-20）：这是**硬规则**，不看有没有日期。
+ *
+ * 之前只在筛选层豁免了长期项目（让它别被年度筛选挡掉），结果它带着日期照样上了图——
+ * 一条「从某天到某天」的条子等于替它编造了一个它并不具备的时间承诺。
+ */
+describe("甘特模型 — 长期项目不上图", () => {
+	it("skips a long-term project even when it has a full date range", () => {
+		const model = buildGanttModel(
+			[
+				projectItem({
+					name: "长期",
+					startDate: "2026-01-01",
+					dueDate: "2026-12-31",
+					longTerm: true,
+				}),
+				projectItem({ name: "普通", startDate: "2026-09-01", dueDate: "2026-09-10" }),
+			],
+			settings(),
+			TODAY,
+		);
+		expect(model.rows.map((row) => row.item.file.name)).toEqual(["普通"]);
+		expect(model.skipped.map((skip) => skip.reason)).toEqual(["long-term"]);
+		expect(model.skipped[0]?.item.file.name).toBe("长期");
+	});
+
+	it("reports 长期项目 as the reason even when the project is also cancelled", () => {
+		const model = buildGanttModel(
+			[
+				projectItem({
+					name: "长期且取消",
+					startDate: "2026-01-01",
+					dueDate: "2026-12-31",
+					longTerm: true,
+					status: "cancelled",
+				}),
+			],
+			settings(),
+			TODAY,
+		);
+		expect(model.rows).toHaveLength(0);
+		expect(model.skipped[0]?.reason).toBe("long-term");
+	});
+});
+
+describe("甘特模型 — bar 上的天数（自然日 / 工作日）", () => {
+	// 2026-09-14(一) ~ 09-20(日)：共 7 天，其中 09-19、09-20 是周末 → 工作日 5 天
+	const week = [projectItem({ name: "a", startDate: "2026-09-14", dueDate: "2026-09-20" })];
+
+	it("counts calendar days as a closed interval", () => {
+		const row = buildGanttModel(week, settings({ ganttBarDuration: "calendar" }), TODAY).rows[0];
+		expect(row?.calendarDays).toBe(7);
+		expect(row?.durationLabel).toBe("7天");
+	});
+
+	it("subtracts weekends only when the weekend option is on", () => {
+		const withWeekend = buildGanttModel(
+			week,
+			settings({ ganttBarDuration: "workday", mermaidExcludeWeekends: true }),
+			TODAY,
+		).rows[0];
+		expect(withWeekend?.workdayDays).toBe(5);
+		expect(withWeekend?.durationLabel).toBe("5工作日");
+
+		// 没开「排除周末」时，工作日就等于自然日——口径一致，不偷偷替用户决定
+		const withoutWeekend = buildGanttModel(
+			week,
+			settings({ ganttBarDuration: "workday" }),
+			TODAY,
+		).rows[0];
+		expect(withoutWeekend?.workdayDays).toBe(7);
+	});
+
+	it("subtracts holidays and credits make-up workdays", () => {
+		const row = buildGanttModel(
+			week,
+			settings({
+				ganttBarDuration: "workday",
+				mermaidExcludeWeekends: true,
+				holidaySchedules: { "2026": { holidays: "09-16~09-17", makeupWorkdays: "09-20" } },
+			}),
+			TODAY,
+		).rows[0];
+		// 7 天 − 09-19(六) − 09-20(日，但补班) − 09-16 − 09-17 = 4
+		expect(row?.workdayDays).toBe(4);
+		expect(row?.calendarDays).toBe(7);
+	});
+
+	it("still computes both counts when the label is off (bar 悬停提示要用)", () => {
+		const row = buildGanttModel(week, settings(), TODAY).rows[0];
+		expect(row?.durationLabel).toBeNull();
+		expect(row?.calendarDays).toBe(7);
+		expect(row?.workdayDays).toBe(7);
+	});
+
+	it("keeps the single-day case honest (闭区间：一天就是 1，不是 0)", () => {
+		const row = buildGanttModel(
+			[projectItem({ name: "one", startDate: "2026-09-16", dueDate: "2026-09-16" })],
+			settings({ ganttBarDuration: "calendar" }),
+			TODAY,
+		).rows[0];
+		expect(row?.durationLabel).toBe("1天");
+	});
+
+	it("labels every mode through one pure helper", () => {
+		expect(durationLabel("off", 10, 7)).toBeNull();
+		expect(durationLabel("calendar", 10, 7)).toBe("10天");
+		expect(durationLabel("workday", 10, 7)).toBe("7工作日");
+	});
+});
+
+describe("甘特模型 — 非工作日清单", () => {
+	const week = [projectItem({ name: "a", startDate: "2026-09-14", dueDate: "2026-09-20" })];
+
+	it("is empty when neither weekends nor holidays are configured", () => {
+		expect(buildGanttModel(week, settings(), TODAY).nonWorkingDays).toEqual([]);
+	});
+
+	it("expands weekends across the model range when the option is on", () => {
+		const model = buildGanttModel(week, settings({ mermaidExcludeWeekends: true }), TODAY);
+		// 09-14(一) ~ 09-20(日) → 只有 09-19、09-20 是周末
+		expect(model.nonWorkingDays).toEqual(["2026-09-19", "2026-09-20"]);
+	});
+
+	it("adds schedule holidays and lets a make-up workday cancel a weekend", () => {
+		const model = buildGanttModel(
+			week,
+			settings({
+				mermaidExcludeWeekends: true,
+				holidaySchedules: {
+					"2026": { holidays: "09-16~09-17", makeupWorkdays: "09-20" },
+				},
+			}),
+			TODAY,
+		);
+		// 09-16、09-17 是节假日；09-19 周六仍是周末；09-20 周日被补班捞回工作日
+		expect(model.nonWorkingDays).toEqual(["2026-09-16", "2026-09-17", "2026-09-19"]);
+	});
+});
 
 describe("甘特模型 — 日期兜底（SPEC §2.3，继承 projectGantt.js ±7 天）", () => {
 	it("keeps both dates as-is when present", () => {

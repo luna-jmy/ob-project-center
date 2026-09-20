@@ -90,6 +90,67 @@ describe("时间轴刻度 — 表头两级刻度", () => {
 		expect(first.x).toBe(0);
 		expect(last.x + last.width).toBeCloseTo(scale.totalWidth, 6);
 	});
+
+	/*
+	 * 回归测试：粗粒度行（month 档的「年」、year 档的「年」）的首列往往从区间之前就开始了。
+	 * 表头是按列宽顺序流式排布的，一旦首列伸出画布，整行标签就会与下面的网格线错开
+	 * ——「2025」会横跨整个可视区，而它其实只该占 12 月那一条。
+	 */
+	it("clamps the coarse row to the scale range so labels stay aligned with the grid", () => {
+		const scale = buildTimeScale("2026-01-05", "2026-03-10", "month");
+		const first = scale.upper[0];
+		if (first === undefined) throw new Error("missing column");
+		expect(first.x).toBe(0);
+		for (let i = 1; i < scale.upper.length; i++) {
+			const prev = scale.upper[i - 1];
+			const curr = scale.upper[i];
+			if (prev === undefined || curr === undefined) throw new Error("missing column");
+			expect(curr.x).toBeCloseTo(prev.x + prev.width, 6);
+		}
+	});
+});
+
+/*
+ * 年档（用户要求 2026-09-20）：原先最粗只到 month，一年要 1800+ px 横向拖才看得完，
+ * 「看全年」这个需求根本没被满足；这里锁住「一整年明显窄于一屏」这条底线。
+ */
+describe("时间轴刻度 — 年档（按季度画线，一屏看全年）", () => {
+	it("exposes a day width for every zoom mode", () => {
+		expect(Object.keys(DAY_WIDTH).sort()).toEqual(["day", "month", "week", "year"]);
+	});
+
+	it("uses quarters as lower columns and years as upper", () => {
+		const scale = buildTimeScale("2026-01-05", "2026-08-10", "year");
+		expect(scale.lower.map((c) => c.label)).toEqual([
+			"2025-Q4",
+			"2026-Q1",
+			"2026-Q2",
+			"2026-Q3",
+			"2026-Q4",
+		]);
+		expect(scale.upper.map((c) => c.label)).toEqual(["2025", "2026"]);
+	});
+
+	it("pads by one full quarter on each side", () => {
+		const scale = buildTimeScale("2026-02-01", "2026-03-31", "year");
+		expect(scale.startIso).toBe("2025-10-01");
+		expect(scale.endIso).toBe("2026-06-30");
+	});
+
+	it("aligns quarters to calendar quarter boundaries", () => {
+		const scale = buildTimeScale("2026-05-20", "2026-05-20", "year");
+		const q2 = scale.lower.find((c) => c.label === "2026-Q2");
+		expect(q2?.startIso).toBe("2026-04-01");
+		expect(q2?.endIso).toBe("2026-06-30");
+	});
+
+	it("fits a whole calendar year into one screen width", () => {
+		const scale = buildTimeScale("2026-01-01", "2026-12-31", "year");
+		const monthZoom = buildTimeScale("2026-01-01", "2026-12-31", "month");
+		expect(scale.totalWidth).toBeLessThan(700);
+		// 与月档拉开明显差距，否则这一档就没有存在意义
+		expect(scale.totalWidth).toBeLessThan(monthZoom.totalWidth / 2);
+	});
 });
 
 describe("时间轴刻度 — 今天标记", () => {

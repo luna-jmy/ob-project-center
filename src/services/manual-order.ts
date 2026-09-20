@@ -29,6 +29,34 @@ export function projectOrderKey(mode: GroupingMode, groupKey: string): string {
 	return `${mode}::${groupKey}`;
 }
 
+/**
+ * 把「可见子集的顺序」并回完整序列（甘特侧栏拖动排序用）。
+ *
+ * 甘特侧栏只列出真正上了甘特图的项目——已取消或缺起止日期的会被跳过。
+ * 若直接把这份可见顺序落盘，那些被跳过的项目会因为「未记录」而被稳定排序顶到组尾，
+ * 在面板里表现为「拖一下，几个项目莫名其妙跑到了最后」。
+ *
+ * 做法：在完整序列里，凡是属于可见集合的位置，按新顺序依次填入；其余位置原样钉住。
+ * 等价于「可见项内部换位，被跳过的项目原地不动」。
+ */
+export function mergeVisibleOrder(
+	full: readonly string[],
+	visible: readonly string[],
+): string[] {
+	if (visible.length === 0) return [...full];
+	const visibleSet = new Set(visible);
+	let cursor = 0;
+	const merged = full.map((path) => {
+		if (!visibleSet.has(path)) return path;
+		const replacement = visible[cursor];
+		cursor += 1;
+		return replacement ?? path;
+	});
+	// 完整序列里没对上的（理论上不该发生，例如分组已被筛选掉）也不能丢
+	const leftover = visible.slice(cursor);
+	return leftover.length > 0 ? [...merged, ...leftover] : merged;
+}
+
 /** 按给定顺序重排；未记录的项排在后面并保持原相对顺序 */
 export function reorderByKey<T>(
 	order: readonly string[],

@@ -1,54 +1,99 @@
-import { App, Component, MarkdownRenderer, Setting } from "obsidian";
+import { App, Component, MarkdownRenderer } from "obsidian";
 
 /**
- * Mermaid 预览 + 编辑栏（用户要求 2026-09-20）—— 右侧面板的第二个 Tab。
+ * Mermaid 预览（用户口径 2026-09-20 二次修订）—— 主区第二个 Tab，结构极简：
+ * 一行控件 + 预览区。
  *
- * 三段结构：
- * 1. **选项**：Today 竖线、排除周末、排除指定日期 —— 直接改设置并重新生成；
- * 2. **预览**：交给宿主的 Markdown 渲染器渲染（不引 mermaid 依赖、不自己塞 DOM），
- *    所见即所得——预览长什么样，粘贴到笔记里就是什么样；
- * 3. **编辑栏**：可直接改代码；一改就进「草稿」状态，复制/导出用的是草稿内容，
- *    「重新生成」把草稿丢掉回到按当前筛选/分组算出来的版本。
+ * ── 为什么没有代码编辑区（用户明确要求去掉）──────────────────────────
+ * 甘特图是**唯一可编辑版本**，预览只是它的投影。留一个可改的代码框，
+ * 就等于允许出现第二份真相：改了代码、再去甘特图拖一下，两边就各说各话。
+ * 去掉编辑区之后，「内容部分跟甘特图编辑区域联动」是结构上保证的——
+ * 预览每次都是重新生成的，不存在过期副本。
  *
- * 渲染用子 Component 管理：每次重渲染先 unload 上一个，
- * 否则 mermaid 生成的 DOM 与监听器会一轮轮堆在视图上（技能：Markdown 渲染子组件要托管）。
+ * ── 其余口径 ────────────────────────────────────────────────────────
+ * - 选项用按钮控制（chip 开关 + 一个日期输入），改完立刻重算预览并存设置；
+ * - 只要一个「导出代码」按钮。
  */
 
 export interface MermaidOptions {
 	todayMarker: boolean;
 	excludeWeekends: boolean;
+	/** 法定节假日：输出 excludes 列表 */
 	excludeDates: string;
+	/** 调休补班：输出 includes 列表（优先级最高，能把周末捞回工作日） */
+	includeDates: string;
 }
 
 export interface MermaidPanelHost {
-	/** 当前应当展示/复制的 mermaid 全文（草稿优先） */
+	/** 当前应当展示/导出的 mermaid 全文（由甘特图模型实时生成） */
 	getSource(): string;
-	/** 是否处于草稿状态（用户改过编辑栏） */
-	isDirty(): boolean;
 	getOptions(): MermaidOptions;
-	/** 复选框变化 → 存设置 + 重新生成 */
+	/** 选项变化 → 存设置 + 重算预览 */
 	onOptionsChange(patch: Partial<MermaidOptions>): void;
-	/** 编辑栏内容变化（防抖后回调） */
-	onSourceEdit(text: string): void;
-	/** 丢弃草稿，回到生成版本 */
-	onRegenerate(): void;
-	onCopy(): void;
-	onExportToNote(): void;
+	/** 导出代码：复制到剪贴板 */
+	onExportCode(): void;
+	/** 写入笔记：落到指定笔记的标记块之间（F1.7） */
+	onWriteToNote(): void;
 }
 
-/** 编辑栏输入防抖：每次按键都重渲染 mermaid 会明显卡顿 */
-const EDIT_DEBOUNCE_MS = 400;
+type ToggleKey = "todayMarker" | "excludeWeekends";
+type DateFieldKey = "excludeDates" | "includeDates";
+
+/** 开关型选项：按钮直接控制，省掉一整套 Setting 行占掉预览的高度 */
+const TOGGLES: { key: ToggleKey; label: string; hint: string }[] = [
+	{ key: "todayMarker", label: "今天线", hint: "导出的代码里保留今天的竖线" },
+	{
+		key: "excludeWeekends",
+		label: "排除周末",
+		hint:
+			"把周六周日标成非工作日：自绘甘特图与导出的图都会把它们画成灰色列。\n" +
+			"注意：任务条长度始终按起止日期算（自然日），不会因为跳过周末而缩短——" +
+			"mermaid 只在任务写成「时长」时才会按工作日重排。",
+	},
+];
+
+/**
+ * 两个日期清单（国内日历的两半）：
+ * 节假日进 excludes，调休补班进 includes——后者优先级更高，能把落在周末的补班日捞回工作日。
+ */
+const DATE_FIELDS: {
+	key: DateFieldKey;
+	label: string;
+	placeholder: string;
+	hint: string;
+}[] = [
+	{
+		key: "excludeDates",
+		label: "排除日期",
+		placeholder: "2026-10-01~2026-10-07",
+		hint:
+			"临时补充的排除日期。支持区间 2026-10-01~2026-10-07（也认「至」），多条用逗号分隔；" +
+			"这些日子在图上会画成灰色的非工作日。\n成规模的法定节假日建议在设置里按年份维护「法定节假日排期」，导出时会自动套用。",
+	},
+	{
+		key: "includeDates",
+		label: "调休上班",
+		placeholder: "2026-10-10",
+		hint:
+			"临时补充的调休补班日。写法同上；这些日子强制算工作日（优先级高于排除），" +
+			"用于把「周六但要上班」从灰色里捞回来。\n年度排期里的补班日会自动套用，这里只填例外。",
+	},
+];
+
+/** 日期输入的防抖：每次按键都重算预览会卡，还会连着写盘 */
+const INPUT_DEBOUNCE_MS = 400;
 
 export class MermaidPanel {
-	private optionsEl: HTMLElement | null = null;
+	private readonly toggles = new Map<ToggleKey, HTMLButtonElement>();
+	private readonly dateInputs = new Map<DateFieldKey, HTMLInputElement>();
 	private previewEl: HTMLElement | null = null;
-	private editorEl: HTMLTextAreaElement | null = null;
-	private dirtyHintEl: HTMLElement | null = null;
 
 	private previewChild: Component | null = null;
 	/** 渲染代次：mermaid 渲染是异步的，用它丢弃过期结果 */
 	private renderGeneration = 0;
-	private editTimer: number | null = null;
+	private inputTimer: number | null = null;
+	/** 防抖期间累积的改动（两个输入框共用一个定时器） */
+	private pendingPatch: Partial<MermaidOptions> = {};
 
 	constructor(
 		private readonly component: Component,
@@ -57,108 +102,100 @@ export class MermaidPanel {
 		private readonly deps: MermaidPanelHost,
 	) {
 		this.build();
-		this.component.register(() => this.clearEditTimer());
+		this.component.register(() => this.clearInputTimer());
 	}
 
 	private build(): void {
 		this.host.addClass("pm-mermaid");
 
-		this.optionsEl = this.host.createDiv({ cls: "pm-mermaid__options" });
-		this.buildOptions();
+		const bar = this.host.createDiv({ cls: "pm-mermaid__bar" });
 
-		const panes = this.host.createDiv({ cls: "pm-mermaid__panes" });
-
-		const previewWrap = panes.createDiv({ cls: "pm-mermaid__pane pm-mermaid__pane--preview" });
-		previewWrap.createDiv({ cls: "pm-pane-title", text: "预览" });
-		this.previewEl = previewWrap.createDiv({ cls: "pm-mermaid__preview" });
-
-		const editorWrap = panes.createDiv({ cls: "pm-mermaid__pane pm-mermaid__pane--editor" });
-		const editorHead = editorWrap.createDiv({ cls: "pm-pane-head" });
-		editorHead.createDiv({ cls: "pm-pane-title", text: "编辑栏" });
-		this.dirtyHintEl = editorHead.createSpan({ cls: "pm-mermaid__dirty", text: "" });
-
-		const editor = editorWrap.createEl("textarea", {
-			cls: "pm-mermaid__editor",
-			attr: { spellcheck: "false", "aria-label": "Mermaid 代码，可直接编辑" },
-		});
-		this.editorEl = editor;
-		this.component.registerDomEvent(editor, "input", () => {
-			this.scheduleEdit(editor.value);
-		});
-
-		const actions = editorWrap.createDiv({ cls: "pm-modal__actions" });
-		const regenerate = actions.createEl("button", {
-			cls: "pm-btn",
-			text: "重新生成",
-			attr: { type: "button", title: "丢弃手工改动，按当前筛选/分组重新生成" },
-		});
-		this.component.registerDomEvent(regenerate, "click", () => this.deps.onRegenerate());
-
-		const copy = actions.createEl("button", {
-			cls: "mod-cta",
-			text: "复制 Mermaid",
-			attr: { type: "button" },
-		});
-		this.component.registerDomEvent(copy, "click", () => this.deps.onCopy());
-
-		const exportBtn = actions.createEl("button", {
-			cls: "pm-btn",
-			text: "导出到笔记",
-			attr: { type: "button", title: "写入指定笔记的落点标记之间" },
-		});
-		this.component.registerDomEvent(exportBtn, "click", () => this.deps.onExportToNote());
-
-		this.host.createDiv({
-			cls: "pm-mermaid__note",
-			text: "说明：Mermaid 的 gantt 语法不支持逐任务配色，自定义颜色只影响左侧自绘甘特图，导出时会忽略。",
-		});
-	}
-
-	private buildOptions(): void {
-		const host = this.optionsEl;
-		if (host === null) return;
-		const options = this.deps.getOptions();
-
-		new Setting(host)
-			.setName("显示今天的竖线")
-			.setDesc("关掉后导出的代码里就没有今天的竖线指令（默认是显示的）。")
-			.addToggle((toggle) =>
-				toggle.setValue(options.todayMarker).onChange((value) => {
-					this.deps.onOptionsChange({ todayMarker: value });
-				}),
-			);
-
-		new Setting(host)
-			.setName("排除周末")
-			.setDesc("开启后导出的甘特图会自动跳过周六周日，任务条按工作日连排。")
-			.addToggle((toggle) =>
-				toggle.setValue(options.excludeWeekends).onChange((value) => {
-					this.deps.onOptionsChange({ excludeWeekends: value });
-				}),
-			);
-
-		new Setting(host)
-			.setName("排除日期")
-			.setDesc("逗号分隔的日期，写成四位年、两位月、两位日（例如国内假期）。格式不对的会被忽略。")
-			.addText((text) =>
-				text
-					.setPlaceholder("2026-10-01, 2026-10-02")
-					.setValue(options.excludeDates)
-					.onChange((value) => {
-						this.deps.onOptionsChange({ excludeDates: value });
-					}),
-			);
-	}
-
-	/** 源变化后同步（只同步，不重建 DOM——否则编辑栏会在每次输入后被重建、光标丢失） */
-	update(): void {
-		const source = this.deps.getSource();
-		const editor = this.editorEl;
-		if (editor !== null && this.host.ownerDocument.activeElement !== editor) {
-			if (editor.value !== source) editor.value = source;
+		for (const toggle of TOGGLES) {
+			const button = bar.createEl("button", {
+				cls: "pm-chip",
+				text: toggle.label,
+				attr: { type: "button", title: toggle.hint },
+			});
+			this.toggles.set(toggle.key, button);
+			this.component.registerDomEvent(button, "click", () => {
+				const next = !this.deps.getOptions()[toggle.key];
+				this.deps.onOptionsChange(
+					toggle.key === "todayMarker" ? { todayMarker: next } : { excludeWeekends: next },
+				);
+			});
 		}
-		this.dirtyHintEl?.setText(this.deps.isDirty() ? "（已手工修改，未重新生成）" : "");
-		this.renderPreview(source);
+
+		for (const spec of DATE_FIELDS) {
+			const field = bar.createEl("label", {
+				cls: "pm-mermaid__field",
+				attr: { title: spec.hint },
+			});
+			field.createSpan({ cls: "pm-mermaid__field-label", text: spec.label });
+			const input = field.createEl("input", {
+				cls: "pm-mermaid__input",
+				attr: { type: "text", placeholder: spec.placeholder, "aria-label": spec.label },
+			});
+			this.dateInputs.set(spec.key, input);
+			this.component.registerDomEvent(input, "input", () => {
+				this.scheduleInput(
+					spec.key === "excludeDates"
+						? { excludeDates: input.value }
+						: { includeDates: input.value },
+				);
+			});
+		}
+
+		// 说明折成一个小图标：常驻一行会白占预览的高度
+		bar.createSpan({
+			cls: "pm-mermaid__hint",
+			text: "ⓘ",
+			attr: {
+				title:
+					"Mermaid 的 gantt 语法不支持逐任务配色，自定义颜色只影响左侧自绘甘特图，导出时会忽略。",
+			},
+		});
+
+		// 两个出口：复制走 / 直接落到笔记的标记块之间（用户口径 2026-09-20：两个都要）
+		const actions = bar.createDiv({ cls: "pm-mermaid__actions" });
+
+		const exportButton = actions.createEl("button", {
+			cls: "pm-btn mod-cta",
+			text: "导出代码",
+			attr: { type: "button", title: "复制当前预览的 Mermaid 代码" },
+		});
+		this.component.registerDomEvent(exportButton, "click", () => this.deps.onExportCode());
+
+		const writeButton = actions.createEl("button", {
+			cls: "pm-btn",
+			text: "写入笔记",
+			attr: {
+				type: "button",
+				title: "覆盖指定笔记的落点标记之间的内容（标记可在设置里改）",
+			},
+		});
+		this.component.registerDomEvent(writeButton, "click", () => this.deps.onWriteToNote());
+
+		this.previewEl = this.host.createDiv({ cls: "pm-mermaid__preview" });
+	}
+
+	/**
+	 * 与外部的唯一同步入口：甘特图状态一变就调它。
+	 * 控件状态与预览内容都从 deps 现取，不缓存——缓存就会有过期副本。
+	 */
+	update(): void {
+		const options = this.deps.getOptions();
+		for (const [key, button] of this.toggles) {
+			const active = options[key];
+			button.toggleClass("is-active", active);
+			button.setAttribute("aria-pressed", String(active));
+		}
+		// 正在输入的那个框不要回写：会把光标顶到末尾、中文输入法候选框也会丢
+		for (const [key, input] of this.dateInputs) {
+			if (this.host.ownerDocument.activeElement === input) continue;
+			const value = options[key];
+			if (input.value !== value) input.value = value;
+		}
+		this.renderPreview(this.deps.getSource());
 	}
 
 	private renderPreview(source: string): void {
@@ -194,24 +231,28 @@ export class MermaidPanel {
 			});
 	}
 
-	private scheduleEdit(value: string): void {
-		this.clearEditTimer();
+	private scheduleInput(patch: Partial<MermaidOptions>): void {
+		// 两个输入框共用一个定时器：累积各自的改动，一次落盘一次重渲染
+		this.pendingPatch = { ...this.pendingPatch, ...patch };
+		this.clearInputTimer();
 		const win = this.host.ownerDocument.defaultView;
 		if (win === null) return;
-		this.editTimer = win.setTimeout(() => {
-			this.editTimer = null;
-			this.deps.onSourceEdit(value);
-		}, EDIT_DEBOUNCE_MS);
+		this.inputTimer = win.setTimeout(() => {
+			this.inputTimer = null;
+			const pending = this.pendingPatch;
+			this.pendingPatch = {};
+			this.deps.onOptionsChange(pending);
+		}, INPUT_DEBOUNCE_MS);
 	}
 
-	private clearEditTimer(): void {
-		if (this.editTimer === null) return;
-		this.host.ownerDocument.defaultView?.clearTimeout(this.editTimer);
-		this.editTimer = null;
+	private clearInputTimer(): void {
+		if (this.inputTimer === null) return;
+		this.host.ownerDocument.defaultView?.clearTimeout(this.inputTimer);
+		this.inputTimer = null;
 	}
 
 	destroy(): void {
-		this.clearEditTimer();
+		this.clearInputTimer();
 		if (this.previewChild !== null) {
 			this.component.removeChild(this.previewChild);
 			this.previewChild = null;

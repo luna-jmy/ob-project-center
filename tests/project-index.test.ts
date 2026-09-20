@@ -31,6 +31,60 @@ function makeIndex(
 	);
 }
 
+/*
+ * 重命名（用户口径 2026-09-20：只改了笔记名、没换文件夹，项目却从面板上消失）。
+ *
+ * 关键在于**不能靠重读 frontmatter**：metadataCache 的路径映射不是同步跟着 rename 走的，
+ * 那一刻读新路径会拿到 null，于是这个还在的项目被判成「不是项目」抹掉，
+ * 而内容没变、不会再有 changed 事件来救它。下面第一条用例正是把「新路径读不到缓存」
+ * 建模出来——就是线上发生的那种状态。
+ */
+describe("ProjectIndex — 重命名", () => {
+	it("carries the item over to the new path without re-reading frontmatter", () => {
+		const index = makeIndex([file("100 Projects/A/old.md")], {
+			"100 Projects/A/old.md": fm({ priority: 2 }),
+		});
+		index.rebuild();
+		expect(index.getAll()).toHaveLength(1);
+
+		// 改名后缓存还没跟上：新路径读出来是 null
+		expect(index.rename("100 Projects/A/old.md", "100 Projects/A/new.md")).toBe(true);
+		const items = index.getAll();
+		expect(items).toHaveLength(1);
+		expect(items[0]?.file.path).toBe("100 Projects/A/new.md");
+		expect(items[0]?.file.name).toBe("new");
+		// frontmatter 内容原样保留（重命名不改内容）
+		expect(items[0]?.priority).toBe("2");
+	});
+
+	it("drops the old path so the project is not listed twice", () => {
+		const index = makeIndex([file("100 Projects/A/old.md")], {
+			"100 Projects/A/old.md": fm(),
+		});
+		index.rebuild();
+		index.rename("100 Projects/A/old.md", "100 Projects/A/new.md");
+		expect(index.getAll().map((item) => item.file.path)).toEqual(["100 Projects/A/new.md"]);
+	});
+
+	it("removes the item when the rename moves it out of the scan folders", () => {
+		const index = makeIndex([file("100 Projects/A/p.md")], {
+			"100 Projects/A/p.md": fm(),
+		});
+		index.rebuild();
+		expect(index.rename("100 Projects/A/p.md", "900 Archive/p.md")).toBe(false);
+		expect(index.getAll()).toHaveLength(0);
+	});
+
+	it("falls back to indexing the new path when the old one was never indexed", () => {
+		// 注意：不先 rebuild —— 模拟「旧路径从来没进过索引」，此时只能按新路径重新识别
+		const index = makeIndex([file("100 Projects/A/new.md")], {
+			"100 Projects/A/new.md": fm(),
+		});
+		expect(index.rename("100 Projects/A/ghost.md", "100 Projects/A/new.md")).toBe(true);
+		expect(index.getAll().map((item) => item.file.path)).toEqual(["100 Projects/A/new.md"]);
+	});
+});
+
 describe("ProjectIndex — 扫描范围（SPEC §2.1/§5.1）", () => {
 	it("indexes only type:project notes inside scan folders", () => {
 		const index = makeIndex(

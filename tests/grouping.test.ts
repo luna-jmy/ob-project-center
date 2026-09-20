@@ -39,6 +39,82 @@ function item(overrides: Partial<ProjectItem> & { name: string; path?: string })
 
 type FolderNotes = Record<string, { path: string; name: string }[]>;
 
+/*
+ * 「不分组」档（用户口径 2026-09-20）：不按文件夹 / 目标 / 领域切，
+ * 改成按「有没有资料 + 快速项目」分三块，一眼看出哪些项目还空着。
+ *
+ * 判定复用 `splitByKind()`——面板的卡片形态用的就是它，所以这组用例同时也锁住了
+ * 「分区」与「卡片形态」不会各走一套口径。
+ */
+describe("不分组模式（有资料 / 没资料 / 快速项目三分区）", () => {
+	const noneSettings: ProjectMasterSettings = { ...DEFAULT_SETTINGS, defaultGrouping: "none" };
+	const folders: FolderNotes = {
+		// A 有自己的文件夹且里面有资料；B 的文件夹是空的；quick 在扫描根层
+		"100 Projects/A": [{ path: "100 Projects/A/笔记.md", name: "笔记" }],
+	};
+
+	it("splits into 快速项目 → 有资料 → 没资料 in that order", () => {
+		const result = groupProjects(
+			[
+				item({ name: "quick", path: "100 Projects/quick.md" }),
+				item({ name: "A", path: "100 Projects/A/A.md" }),
+				item({ name: "B", path: "100 Projects/B/B.md" }),
+			],
+			noneSettings,
+			{ folderNotes: folders },
+		);
+		expect(result.quickGroups.map((group) => group.title)).toEqual(["快速项目"]);
+		expect(result.normalGroups.map((group) => group.title)).toEqual(["有资料", "没资料"]);
+		expect(toSectionSpecs(result).map((spec) => spec.name)).toEqual([
+			"快速项目",
+			"有资料",
+			"没资料",
+		]);
+	});
+
+	it("omits empty buckets instead of emitting blank sections", () => {
+		const result = groupProjects(
+			[item({ name: "A", path: "100 Projects/A/A.md" })],
+			noneSettings,
+			{ folderNotes: folders },
+		);
+		expect(toSectionSpecs(result).map((spec) => spec.name)).toEqual(["有资料"]);
+	});
+
+	it("treats everything as 没资料 when the caller supplies no notes at all", () => {
+		// 没提供 folderNotes = 不知道有没有资料，此时不该把大家都算成「有资料」
+		const result = groupProjects([item({ name: "A", path: "100 Projects/A/A.md" })], noneSettings);
+		expect(result.normalGroups.map((group) => group.title)).toEqual(["没资料"]);
+	});
+
+	it("prefixes section keys so they cannot collide with folder paths or area values", () => {
+		const result = groupProjects(
+			[item({ name: "quick", path: "100 Projects/quick.md" })],
+			noneSettings,
+			{ folderNotes: folders },
+		);
+		for (const key of [
+			...result.quickGroups.map((group) => group.folder),
+			...result.normalGroups.map((group) => group.key),
+		]) {
+			expect(key.startsWith("kind:")).toBe(true);
+		}
+	});
+
+	it("still reports per-project materials so the panel can pick card styles", () => {
+		const result = groupProjects(
+			[
+				item({ name: "A", path: "100 Projects/A/A.md" }),
+				item({ name: "B", path: "100 Projects/B/B.md" }),
+			],
+			noneSettings,
+			{ folderNotes: folders },
+		);
+		expect(result.materialsByPath["100 Projects/A/A.md"]).toHaveLength(1);
+		expect(result.materialsByPath["100 Projects/B/B.md"]).toEqual([]);
+	});
+});
+
 describe("快速项目分区（F3.1，继承 projectOverview.js 分区规则）", () => {
 	it("root-level projects of a scan folder land in the quick section", () => {
 		const result = groupProjects(
