@@ -1,6 +1,6 @@
 {
   "name": "project-master",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Manage projects with an interactive Gantt dashboard",
   "main": "main.js",
   "type": "module",

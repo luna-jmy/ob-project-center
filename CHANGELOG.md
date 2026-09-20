@@ -9,7 +9,7 @@
 
 暂无。
 
-## [0.1.0] - 2026-09-20
+## [1.0.0] - 2026-09-20
 
 首个可用版本。数据源是项目笔记的 frontmatter，识别方式与字段映射均可配置，
 现有 TPL-Project 模板的项目笔记不需要任何迁移即可被识别。
@@ -65,5 +65,5 @@
 - 纯逻辑层全覆盖：规范化、筛选管道、分组与资料归集、甘特模型与时间刻度、
   Mermaid 导出、字段映射、设置迁移、节假日排期
 
-[Unreleased]: https://github.com/luna-jmy/ob-project-center/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/luna-jmy/ob-project-center/releases/tag/v0.1.0
+[Unreleased]: https://github.com/luna-jmy/ob-project-center/compare/1.0.0...HEAD
+[1.0.0]: https://github.com/luna-jmy/ob-project-center/releases/tag/1.0.0
