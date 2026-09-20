@@ -12,3 +12,8 @@ node_modules/
 # OS
 .DS_Store
 Thumbs.db
+
+# 私有内容：本地工作记录与设计规格，不进版本库
+# （已从索引中移除，见 git rm --cached；文件仍保留在本地）
+.workbuddy/
+SPEC.md

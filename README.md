@@ -2,7 +2,7 @@
 
 Obsidian 项目管理 dashboard 插件：可交互甘特图（点击跳转笔记、UI 编辑）、筛选排序、项目分组面板。数据源为项目笔记 frontmatter，零迁移兼容现有 TPL-Project 模板。
 
-> 开发中（Milestone 0 骨架）。设计规格见 [SPEC.md](./SPEC.md)，开发约束见 [agent.md](./agent.md)。
+> 开发中，M1–M4 已落地（见 [CHANGELOG.md](./CHANGELOG.md)）。开发约束见 [agent.md](./agent.md)。
 
 ## 纯本地声明
 
