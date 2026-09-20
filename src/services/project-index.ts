@@ -13,15 +13,51 @@ import { buildProjectItem, DataIssue, ProjectFileInfo } from "./project-item";
 /** frontmatter 原始读取器：无缓存/无 frontmatter 返回 null */
 export type FrontmatterReader = (path: string) => Record<string, unknown> | null;
 
+/**
+ * 路径是否落在扫描范围内（SPEC §2.1/§5.1）—— 纯函数。
+ * 前缀匹配带 `/` 分隔符，避免「100 Projects2」被误判进「100 Projects」。
+ * main.ts 做大 vault 分批预筛时复用同一份逻辑，避免两处范围判断漂移。
+ */
+export function isPathInScope(path: string, settings: ProjectMasterSettings): boolean {
+	const inScanFolder = settings.scanFolders.some(
+		(folder) => path === folder || path.startsWith(`${folder}/`),
+	);
+	if (!inScanFolder) {
+		return false;
+	}
+	return !settings.excludedFolders.some(
+		(folder) => path === folder || path.startsWith(`${folder}/`),
+	);
+}
+
+/** vault 路径 → 逻辑文件信息（纯函数，main.ts 组装扫描清单时复用） */
+export function toFileInfo(path: string): ProjectFileInfo {
+	const segments = path.split("/");
+	const name = segments[segments.length - 1].replace(/\.md$/, "");
+	const folder = segments.slice(0, -1).join("/");
+	return { path, name, folder };
+}
+
 export class ProjectIndex {
 	private readonly items = new Map<string, ProjectItem>();
 	private readonly issues = new Map<string, DataIssue[]>();
+	private files: ProjectFileInfo[];
 
 	constructor(
-		private readonly files: ProjectFileInfo[],
+		files: ProjectFileInfo[],
 		private readonly readFrontmatter: FrontmatterReader,
 		private readonly settings: ProjectMasterSettings,
-	) {}
+	) {
+		this.files = files;
+	}
+
+	/**
+	 * 替换文件清单（vault 新增/重命名/删除后重新全量扫描用）。
+	 * 仅换清单不自动重建，调用方随后调 rebuild()。
+	 */
+	setFiles(files: ProjectFileInfo[]): void {
+		this.files = files;
+	}
 
 	/** 全量重建（幂等：清空后重扫；范围外文件直接跳过） */
 	rebuild(): void {
@@ -80,22 +116,10 @@ export class ProjectIndex {
 	}
 
 	private isInScope(file: ProjectFileInfo): boolean {
-		const inScanFolder = this.settings.scanFolders.some(
-			(folder) => file.path === folder || file.path.startsWith(`${folder}/`),
-		);
-		if (!inScanFolder) {
-			return false;
-		}
-		const inExcluded = this.settings.excludedFolders.some(
-			(folder) => file.path === folder || file.path.startsWith(`${folder}/`),
-		);
-		return !inExcluded;
+		return isPathInScope(file.path, this.settings);
 	}
 
 	private toFileInfo(path: string): ProjectFileInfo {
-		const segments = path.split("/");
-		const name = segments[segments.length - 1].replace(/\.md$/, "");
-		const folder = segments.slice(0, -1).join("/");
-		return { path, name, folder };
+		return toFileInfo(path);
 	}
 }

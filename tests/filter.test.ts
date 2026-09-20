@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
 	applyFilters,
+	collectYears,
 	COMPLETED_LIKE_STATUSES,
 	defaultFilterState,
+	detectStatusPreset,
+	hasActiveFilter,
+	initialFilterState,
 	presetToStatuses,
 	resolveDateRange,
 	sortProjects,
+	toggle,
 } from "../src/services/filter-service";
 import { ProjectItem, ProjectStatus } from "../src/types";
 
@@ -324,5 +329,141 @@ describe("applyFilters — 组合行为（F2.7 一套管道两处渲染）", () 
 			dateRange: { preset: "custom" as const, start: "2026-09-01", end: "2026-09-30" },
 		};
 		expect(applyFilters(items, state).map((i) => i.file.name)).toEqual(["官网改版"]);
+	});
+});
+
+describe("年度筛选（用户要求 2026-09-18：按开始年度/结束年度快速缩小范围）", () => {
+	const items = [
+		item({ name: "去年启动", startDate: "2025-03-01", dueDate: "2026-06-30" }),
+		item({ name: "今年启动", startDate: "2026-01-15", dueDate: "2027-03-31" }),
+		item({ name: "明年启动", startDate: "2027-02-01", dueDate: "2027-12-31" }),
+		item({ name: "无开始日期", dueDate: "2026-05-01" }),
+		item({ name: "完全没有日期" }),
+	];
+
+	function stateWithYears(startYear: number | null, endYear: number | null) {
+		return { ...defaultFilterState(), startYear, endYear };
+	}
+
+	it("filters strictly by the year of start_date", () => {
+		const result = applyFilters(items, stateWithYears(2026, null));
+		expect(result.map((i) => i.file.name)).toEqual(["今年启动"]);
+	});
+
+	it("filters strictly by the year of due_date", () => {
+		const result = applyFilters(items, stateWithYears(null, 2026));
+		expect(result.map((i) => i.file.name)).toEqual(["去年启动", "无开始日期"]);
+	});
+
+	it("combines start year and end year with AND (projects spanning into the chosen year)", () => {
+		const result = applyFilters(items, stateWithYears(2025, 2026));
+		expect(result.map((i) => i.file.name)).toEqual(["去年启动"]);
+	});
+
+	it("excludes dateless projects instead of silently keeping them", () => {
+		// 这是与 dateRange 刻意不同的口径：区间筛选保留无日期项目（overview 语义），
+		// 年度筛选严格匹配——否则「按开始年度」这个筛选会被无日期项目稀释掉。
+		const result = applyFilters(items, stateWithYears(2026, 2026));
+		expect(result.map((i) => i.file.name)).toEqual([]);
+	});
+
+	it("is a no-op when both years are null", () => {
+		expect(applyFilters(items, stateWithYears(null, null))).toHaveLength(items.length);
+	});
+
+	it("does not exempt long-term projects (unlike the date-range filter)", () => {
+		const withLongTerm = [
+			...items,
+			item({ name: "长期项目", startDate: "2020-01-01", longTerm: true }),
+		];
+		// 区间筛选会豁免它
+		const rangeState = {
+			...defaultFilterState(),
+			dateRange: { preset: "custom" as const, start: "2026-01-01", end: "2026-12-31" },
+		};
+		expect(applyFilters(withLongTerm, rangeState).map((i) => i.file.name)).toContain("长期项目");
+		// 年度筛选不会豁免（新增能力，目的就是缩小范围）
+		expect(applyFilters(withLongTerm, stateWithYears(2026, null)).map((i) => i.file.name)).toEqual(
+			["今年启动"],
+		);
+	});
+});
+
+describe("年度候选收集（下拉选项由数据驱动）", () => {
+	it("collects years from both start and due dates, newest first, deduped", () => {
+		const years = collectYears([
+			item({ name: "a", startDate: "2025-03-01", dueDate: "2026-06-30" }),
+			item({ name: "b", startDate: "2026-01-15", dueDate: "2027-03-31" }),
+			item({ name: "c" }),
+		]);
+		expect(years).toEqual([2027, 2026, 2025]);
+	});
+
+	it("returns an empty list when nothing has dates", () => {
+		expect(collectYears([item({ name: "a" })])).toEqual([]);
+	});
+});
+
+describe("默认筛选状态与「清除筛选」（用户要求：默认只看本年启动的项目）", () => {
+	it("defaults the start year to the current year derived from the injected today", () => {
+		expect(initialFilterState("2026-09-18").startYear).toBe(2026);
+		expect(initialFilterState("2030-01-01").startYear).toBe(2030);
+	});
+
+	it("leaves the end year open by default", () => {
+		expect(initialFilterState("2026-09-18").endYear).toBeNull();
+	});
+
+	it("keeps the neutral baseline free of any filtering", () => {
+		const baseline = defaultFilterState();
+		expect(baseline.startYear).toBeNull();
+		expect(baseline.endYear).toBeNull();
+		expect(baseline.statuses).toEqual([]);
+	});
+
+	it("reports the default state as 'no active filter' so the clear button stays hidden", () => {
+		expect(hasActiveFilter(initialFilterState("2026-09-18"), "2026-09-18")).toBe(false);
+	});
+
+	it("reports an active filter once a year differs from the default", () => {
+		const state = { ...initialFilterState("2026-09-18"), startYear: 2025 };
+		expect(hasActiveFilter(state, "2026-09-18")).toBe(true);
+	});
+
+	it("reports an active filter once the year filter is cleared to 'any'", () => {
+		const state = { ...initialFilterState("2026-09-18"), startYear: null };
+		expect(hasActiveFilter(state, "2026-09-18")).toBe(true);
+	});
+
+	it("does not report the neutral baseline as the default state", () => {
+		// 「清除筛选」后按钮应继续可见（已不是默认档），否则用户没法再回到默认视图
+		expect(hasActiveFilter(defaultFilterState(), "2026-09-18")).toBe(true);
+	});
+
+	it("honours the '不限年度' preference from settings", () => {
+		const state = initialFilterState("2026-09-18", "none");
+		expect(state.startYear).toBeNull();
+		// 在该档下「不限年度」本身就是默认，清除按钮不该出现
+		expect(hasActiveFilter(state, "2026-09-18", "none")).toBe(false);
+		// 反过来，选了具体年度就属于「已筛选」
+		const picked = { ...state, startYear: 2025 };
+		expect(hasActiveFilter(picked, "2026-09-18", "none")).toBe(true);
+	});
+});
+
+describe("状态快捷档检测（chips ↔ 下拉的一致性）", () => {
+	it("detects each preset round-trip", () => {
+		expect(detectStatusPreset(presetToStatuses("hide-completed"))).toBe("hide-completed");
+		expect(detectStatusPreset(presetToStatuses("completed-only"))).toBe("completed-only");
+		expect(detectStatusPreset(presetToStatuses("all"))).toBe("all");
+	});
+
+	it("falls back to 'all' for an empty selection (no status filter)", () => {
+		expect(detectStatusPreset([])).toBe("all");
+	});
+
+	it("toggles a chip on and off without reordering", () => {
+		expect(toggle(["a", "b"], "c")).toEqual(["a", "b", "c"]);
+		expect(toggle(["a", "b", "c"], "b")).toEqual(["a", "c"]);
 	});
 });

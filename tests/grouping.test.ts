@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { groupProjects } from "../src/services/grouping-service";
+import {
+	classifyProject,
+	groupProjects,
+	isQuickProject,
+	splitByKind,
+	toSectionSpecs,
+} from "../src/services/grouping-service";
 import { DEFAULT_SETTINGS, ProjectItem, ProjectMasterSettings } from "../src/types";
 
 function item(overrides: Partial<ProjectItem> & { name: string; path?: string }): ProjectItem {
@@ -200,5 +206,265 @@ describe("组内笔记列表（F3.3，继承 maxNotes 行为）", () => {
 		const group = result.normalGroups[0];
 		expect(group?.notes?.shown).toEqual([]);
 		expect(group?.notes?.remaining).toBe(0);
+	});
+});
+
+describe("资料/笔记归集（用户口径 2026-09-18：资料放在项目文件夹的子文件夹里）", () => {
+	/** 项目文件夹 = 项目文档 + 其子文件夹里的资料；资料是无项目信息的普通笔记 */
+	const vaultNotes: FolderNotes = {
+		"100 Projects/官网改版": [{ path: "100 Projects/官网改版/官网改版.md", name: "官网改版" }],
+		"100 Projects/官网改版/资料": [
+			{ path: "100 Projects/官网改版/资料/需求.md", name: "需求" },
+			{ path: "100 Projects/官网改版/资料/会议.md", name: "会议" },
+		],
+		"100 Projects/官网改版/资料/会议记录": [
+			{ path: "100 Projects/官网改版/资料/会议记录/0901.md", name: "0901" },
+		],
+		"100 Projects/别的项目": [{ path: "100 Projects/别的项目/别的项目.md", name: "别的项目" }],
+	};
+
+	const projects = [
+		item({ name: "官网改版", path: "100 Projects/官网改版/官网改版.md", mainProject: true }),
+		item({ name: "别的项目", path: "100 Projects/别的项目/别的项目.md" }),
+	];
+
+	it("counts materials recursively through subfolders, not just direct children", () => {
+		const result = groupProjects(projects, DEFAULT_SETTINGS, { folderNotes: vaultNotes });
+		const group = result.normalGroups.find((g) => g.key === "100 Projects/官网改版");
+		expect(group?.notes?.total).toBe(3);
+		// 按路径码点序：会 U+4F1A < 需 U+9700；同为「会议」时 "." (U+002E) < "记"
+		expect(group?.notes?.shown.map((n) => n.name)).toEqual(["会议", "0901", "需求"]);
+	});
+
+	it("does not count the project document itself as material", () => {
+		const result = groupProjects(projects, DEFAULT_SETTINGS, { folderNotes: vaultNotes });
+		const group = result.normalGroups.find((g) => g.key === "100 Projects/官网改版");
+		expect(group?.notes?.shown.some((n) => n.path.endsWith("官网改版.md"))).toBe(false);
+	});
+
+	it("never lets one project's materials leak into another project's count", () => {
+		const result = groupProjects(projects, DEFAULT_SETTINGS, { folderNotes: vaultNotes });
+		const other = result.normalGroups.find((g) => g.key === "100 Projects/别的项目");
+		expect(other?.notes?.total).toBe(0);
+	});
+
+	it("does not count other project documents as materials (项目文档不是资料)", () => {
+		const folderNotes: FolderNotes = {
+			"100 Projects/官网": [
+				{ path: "100 Projects/官网/main.md", name: "main" },
+				{ path: "100 Projects/官网/sub.md", name: "sub" },
+				{ path: "100 Projects/官网/资料/note.md", name: "note" },
+			],
+		};
+		const result = groupProjects(
+			[
+				item({ name: "main", path: "100 Projects/官网/main.md", mainProject: true }),
+				item({ name: "sub", path: "100 Projects/官网/sub.md" }),
+			],
+			DEFAULT_SETTINGS,
+			{
+				folderNotes,
+				projectPaths: ["100 Projects/官网/main.md", "100 Projects/官网/sub.md"],
+			},
+		);
+		const group = result.normalGroups[0];
+		expect(group?.notes?.shown.map((n) => n.name)).toEqual(["note"]);
+		expect(group?.notes?.total).toBe(1);
+	});
+
+	it("truncates at maxNotesPerProject while total keeps the real count", () => {
+		const result = groupProjects(projects, { ...DEFAULT_SETTINGS, maxNotesPerProject: 1 }, {
+			folderNotes: vaultNotes,
+		});
+		const group = result.normalGroups.find((g) => g.key === "100 Projects/官网改版");
+		expect(group?.notes?.shown).toHaveLength(1);
+		expect(group?.notes?.remaining).toBe(2);
+		expect(group?.notes?.total).toBe(3);
+	});
+
+	it("aggregates materials across folders in objective grouping mode", () => {
+		// 值分组横跨多个文件夹，所以必须把「全部项目文档」传进来才能把项目文档排除干净
+		const result = groupProjects(projects, { ...DEFAULT_SETTINGS, defaultGrouping: "objective" }, {
+			folderNotes: vaultNotes,
+			projectPaths: projects.map((p) => p.file.path),
+		});
+		const group = result.normalGroups[0];
+		expect(group?.notes?.total).toBe(3);
+	});
+});
+
+describe("快速项目判定（面板与甘特共用的唯一口径）", () => {
+	it("treats scan-folder root-level projects as quick", () => {
+		expect(isQuickProject(item({ name: "q", path: "100 Projects/q.md" }), DEFAULT_SETTINGS)).toBe(
+			true,
+		);
+	});
+
+	it("treats projects inside a marker folder as quick, at any depth", () => {
+		const settings = { ...DEFAULT_SETTINGS, scanFolders: ["100 Projects"] };
+		expect(
+			isQuickProject(item({ name: "a", path: "100 Projects/快速项目/a.md" }), settings),
+		).toBe(true);
+		expect(
+			isQuickProject(item({ name: "b", path: "100 Projects/市场部/快速项目/deep/b.md" }), settings),
+		).toBe(true);
+	});
+
+	it("treats a project in its own folder as NOT quick", () => {
+		expect(
+			isQuickProject(item({ name: "p", path: "100 Projects/官网改版/p.md" }), DEFAULT_SETTINGS),
+		).toBe(false);
+	});
+
+	it("does not mistake a folder whose name merely contains the marker for a quick folder", () => {
+		expect(
+			isQuickProject(item({ name: "x", path: "100 Projects/非快速项目集/x.md" }), DEFAULT_SETTINGS),
+		).toBe(false);
+	});
+
+	it("treats out-of-scope paths as normal projects (never loses data)", () => {
+		expect(isQuickProject(item({ name: "o", path: "200 Other/o.md" }), DEFAULT_SETTINGS)).toBe(
+			false,
+		);
+	});
+
+	it("reports quick paths for both folder and value grouping", () => {
+		const items = [
+			item({ name: "quick", path: "100 Projects/quick.md" }),
+			item({ name: "normal", path: "100 Projects/官网/normal.md", objective: "增长" }),
+		];
+		expect(groupProjects(items, DEFAULT_SETTINGS).quickPaths).toEqual(["100 Projects/quick.md"]);
+		// 值分组不会把快速项目单独抽出来（分节必须与甘特一致），但标记仍然要给出
+		const byObjective = groupProjects(items, {
+			...DEFAULT_SETTINGS,
+			defaultGrouping: "objective",
+		});
+		expect(byObjective.quickGroups).toHaveLength(0);
+		expect(byObjective.quickPaths).toEqual(["100 Projects/quick.md"]);
+	});
+});
+
+describe("按项目归集资料（面板「带资料 / 不带资料」二分的依据）", () => {
+	const folderNotes: FolderNotes = {
+		"100 Projects/官网改版": [{ path: "100 Projects/官网改版/官网改版.md", name: "官网改版" }],
+		"100 Projects/官网改版/资料": [
+			{ path: "100 Projects/官网改版/资料/需求.md", name: "需求" },
+			{ path: "100 Projects/官网改版/资料/会议.md", name: "会议" },
+		],
+		"100 Projects/内部工具": [{ path: "100 Projects/内部工具/内部工具.md", name: "内部工具" }],
+		"100 Projects": [{ path: "100 Projects/快速.md", name: "快速" }],
+	};
+
+	const projects = [
+		item({ name: "官网改版", path: "100 Projects/官网改版/官网改版.md", mainProject: true }),
+		item({ name: "内部工具", path: "100 Projects/内部工具/内部工具.md" }),
+		item({ name: "快速", path: "100 Projects/快速.md" }),
+	];
+
+	const result = groupProjects(projects, DEFAULT_SETTINGS, {
+		folderNotes,
+		projectPaths: projects.map((p) => p.file.path),
+	});
+
+	it("attaches materials to the project whose folder holds them", () => {
+		expect(result.materialsByPath["100 Projects/官网改版/官网改版.md"]?.map((n) => n.name)).toEqual(
+			["会议", "需求"],
+		);
+	});
+
+	it("gives an empty list to a project with no materials", () => {
+		expect(result.materialsByPath["100 Projects/内部工具/内部工具.md"]).toEqual([]);
+	});
+
+	it("never attributes scan-root notes to a quick project (it has no folder of its own)", () => {
+		// 「快速.md」自己就在扫描根层，根层里的其它笔记不属于它
+		expect(result.materialsByPath["100 Projects/快速.md"]).toEqual([]);
+	});
+
+	it("is independent from the group-level count in value grouping", () => {
+		const byArea = groupProjects(projects, { ...DEFAULT_SETTINGS, defaultGrouping: "area" }, {
+			folderNotes,
+			projectPaths: projects.map((p) => p.file.path),
+		});
+		// 分组维度看的是并集，项目维度只看自己那一份
+		expect(byArea.materialsByPath["100 Projects/内部工具/内部工具.md"]).toEqual([]);
+	});
+});
+
+describe("项目形态二分（面板：带资料给框框、不带资料给列表）", () => {
+	const withMaterials = item({ name: "带资料", path: "100 Projects/A/带资料.md" });
+	const plain = item({ name: "不带资料", path: "100 Projects/B/不带资料.md" });
+	const quick = item({ name: "快速", path: "100 Projects/快速.md" });
+
+	const quickPaths = new Set([quick.file.path]);
+	const materials: Record<string, { path: string; name: string }[]> = {
+		[withMaterials.file.path]: [{ path: "100 Projects/A/资料/x.md", name: "x" }],
+		[plain.file.path]: [],
+		[quick.file.path]: [],
+	};
+
+	it("classifies each project by kind", () => {
+		expect(classifyProject(withMaterials, quickPaths, materials)).toBe("with-materials");
+		expect(classifyProject(plain, quickPaths, materials)).toBe("plain");
+		expect(classifyProject(quick, quickPaths, materials)).toBe("quick");
+	});
+
+	it("buckets a group's projects without dropping any", () => {
+		const buckets = splitByKind([withMaterials, plain, quick], quickPaths, materials);
+		expect(buckets.withMaterials.map((p) => p.file.name)).toEqual(["带资料"]);
+		expect(buckets.plain.map((p) => p.file.name)).toEqual(["不带资料"]);
+		expect(buckets.quick.map((p) => p.file.name)).toEqual(["快速"]);
+	});
+
+	it("prefers 'quick' over 'with-materials' (a quick project has no folder of its own)", () => {
+		// 即使快速项目所在目录里恰好有笔记被归集到它头上，也仍然算快速项目
+		const polluted = { ...materials, [quick.file.path]: [{ path: "x.md", name: "x" }] };
+		expect(classifyProject(quick, quickPaths, polluted)).toBe("quick");
+	});
+
+	it("treats a missing materials entry as plain (no crash on partial data)", () => {
+		expect(classifyProject(plain, new Set(), {})).toBe("plain");
+	});
+});
+
+describe("分组标题与甘特分节（左右联动的共用数据）", () => {
+	it("titles folder groups with the path relative to the scan folder", () => {
+		const result = groupProjects(
+			[item({ name: "p", path: "100 Projects/市场部/官网/p.md" })],
+			DEFAULT_SETTINGS,
+		);
+		expect(result.normalGroups[0]?.title).toBe("市场部 > 官网");
+	});
+
+	it("keeps the raw value as the title in objective mode", () => {
+		const result = groupProjects(
+			[item({ name: "p", objective: "增长" })],
+			{ ...DEFAULT_SETTINGS, defaultGrouping: "objective" },
+		);
+		expect(result.normalGroups[0]?.title).toBe("增长");
+	});
+
+	it("produces one section per group, quick groups first, in panel order", () => {
+		const result = groupProjects(
+			[
+				item({ name: "quick", path: "100 Projects/quick.md" }),
+				item({ name: "a", path: "100 Projects/官网/a.md", dueDate: "2026-12-01" }),
+				item({ name: "b", path: "100 Projects/别的/b.md", dueDate: "2026-01-01" }),
+			],
+			DEFAULT_SETTINGS,
+		);
+		const specs = toSectionSpecs(result);
+		// 关键：分节顺序 = 左面板卡片顺序（正常组按代表 due 降序：官网 12-01 在别的 01-01 之前）
+		expect(specs.map((s) => s.name)).toEqual([
+			"快速项目（根目录）",
+			"官网",
+			"别的",
+		]);
+		expect(specs[0]?.paths).toEqual(["100 Projects/quick.md"]);
+		expect(specs.map((s) => s.key)).toEqual([
+			"100 Projects",
+			"100 Projects/官网",
+			"100 Projects/别的",
+		]);
 	});
 });

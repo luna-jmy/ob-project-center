@@ -1,18 +1,1019 @@
-/* Project Master — 全部样式限制在 .pm- 前缀作用域内（agent.md §2.1/§2.2） */
+/* ============================================================================
+ * Project Master — 插件样式
+ *
+ * 硬约束（agent.md §2.1/§2.2 一票否决）：
+ * - 所有选择器都限制在 `pm-` 前缀类名下，不出现 `button`、`input`、`body`、
+ *   `.markdown-preview-view`、`.cm-editor` 这类全局选择器；
+ * - 不使用 `!important`，不盲目抬 z-index（仅 sticky 表头用 2）；
+ * - 不做全局 reset，颜色/间距/圆角一律取自 Obsidian 主题变量，明暗主题自动适配；
+ * - 不复用用户的 `project-card` / `fullwidth` 等既有类名，避免与其 CSS 片段打架。
+ *
+ * 与 gantt-view.ts 的数值契约（改动时必须两边一起改，否则条与行会错位）：
+ *   行高 30px / 分节头 26px / 表头 44px(=22+22) / 条上下内缩 5px
+ * ========================================================================== */
+
+/* ───────────────────────────── 骨架 ───────────────────────────── */
 
 .pm-dashboard-root {
-	padding: var(--size-4-3);
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	padding: var(--size-4-2);
 	color: var(--text-normal);
 	background: var(--background-primary);
+	overflow: hidden;
 }
 
-.pm-dashboard-root h2 {
-	color: var(--text-normal);
+.pm-body {
+	display: flex;
+	flex: 1;
+	min-height: 0;
+	gap: var(--size-4-2);
+}
+
+.pm-side {
+	flex: 0 0 34%;
+	max-width: 460px;
+	min-width: 240px;
+	overflow: auto;
+	padding-right: var(--size-4-1);
+	border-right: 1px solid var(--background-modifier-border);
+}
+
+.pm-main {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+}
+
+.pm-gantt-host {
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+}
+
+.pm-body--collapsed .pm-side {
+	display: none;
+}
+
+/* ───────────────────────────── 工具栏 ───────────────────────────── */
+
+.pm-toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--size-4-2);
+	padding-bottom: var(--size-4-2);
+}
+
+.pm-toolbar__title {
+	margin: 0;
 	font-size: var(--font-ui-large);
-	margin: 0 0 var(--size-4-2) 0;
+	font-weight: var(--font-semibold);
+	color: var(--text-normal);
 }
 
-.pm-dashboard-root p {
+.pm-toolbar__actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--size-2-3);
+	margin-left: auto;
+}
+
+.pm-toolbar__select {
+	max-width: 10em;
+}
+
+.pm-btn {
+	padding: var(--size-2-2) var(--size-4-2);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background: var(--interactive-normal);
+	color: var(--text-normal);
+	font-size: var(--font-ui-smaller);
+	cursor: pointer;
+}
+
+.pm-btn:hover {
+	background: var(--interactive-hover);
+}
+
+.pm-btn:focus-visible {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: 1px;
+}
+
+.pm-filter-group--summary .pm-filter-count {
+	font-variant-numeric: tabular-nums;
 	color: var(--text-muted);
+}
+
+.pm-btn--ghost {
+	background: transparent;
+	border-color: var(--background-modifier-border);
+	color: var(--text-muted);
+}
+
+.pm-btn--ghost:hover {
+	color: var(--text-normal);
+	background: var(--background-modifier-hover);
+}
+
+/* ───────────────────────────── 筛选栏 ───────────────────────────── */
+
+.pm-filter-bar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-start;
+	gap: var(--size-4-2);
+	padding: var(--size-4-2);
+	margin-bottom: var(--size-4-2);
+	border-radius: var(--radius-m);
+	background: var(--background-secondary);
+}
+
+.pm-filter-group {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--size-2-3);
+}
+
+.pm-filter-group--summary {
+	margin-left: auto;
+}
+
+.pm-filter-label {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	white-space: nowrap;
+}
+
+.pm-filter-select,
+.pm-filter-input {
+	padding: var(--size-2-2) var(--size-2-3);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background: var(--background-primary);
+	color: var(--text-normal);
+	font-size: var(--font-ui-smaller);
+}
+
+.pm-filter-input--date {
+	min-width: 9em;
+}
+
+.pm-date-range {
+	display: flex;
+	align-items: center;
+	gap: var(--size-2-2);
+}
+
+/* 年度快捷筛选：两个「开始 / 结束」下拉并排，标签在控件左侧 */
+.pm-year-picker {
+	display: flex;
+	align-items: center;
+	gap: var(--size-2-1);
+}
+
+.pm-year-picker__label {
+	color: var(--text-faint);
+	font-size: var(--font-ui-smaller);
+	white-space: nowrap;
+}
+
+.pm-filter-group--year .pm-filter-select {
+	min-width: 7.5em;
+}
+
+.pm-date-sep {
+	color: var(--text-faint);
+}
+
+.pm-chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--size-2-2);
+}
+
+.pm-chips--area {
+	max-width: 100%;
+}
+
+.pm-chip {
+	padding: 2px var(--size-2-3);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-l);
+	background: var(--background-primary);
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	cursor: pointer;
+	white-space: nowrap;
+}
+
+.pm-chip:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.pm-chip.is-active {
+	background: var(--interactive-accent);
+	border-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+}
+
+.pm-chip:focus-visible {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: 1px;
+}
+
+.pm-filter-count--empty {
+	color: var(--text-error);
+}
+
+.pm-filter-clear {
+	padding: 2px var(--size-2-3);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background: transparent;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	cursor: pointer;
+}
+
+.pm-filter-clear:hover {
+	color: var(--text-normal);
+	background: var(--background-modifier-hover);
+}
+
+/* 作用域限定在插件根容器下：`is-hidden` 是宿主也在用的通用类名，不能全局改写 */
+.pm-dashboard-root .is-hidden {
+	display: none;
+}
+
+/* ───────────────────────────── 数据问题提示 ───────────────────────────── */
+
+.pm-issues {
+	padding: var(--size-2-3) var(--size-4-2);
+	margin-bottom: var(--size-4-2);
+	border: 1px solid var(--background-modifier-border);
+	border-left: 3px solid var(--color-orange);
+	border-radius: var(--radius-s);
+	background: var(--background-secondary);
+	font-size: var(--font-ui-smaller);
+}
+
+.pm-issues__title {
+	color: var(--text-warning, var(--text-normal));
+	font-weight: var(--font-semibold);
+	margin-bottom: var(--size-2-2);
+}
+
+.pm-issues__list {
+	margin: 0;
+	padding-left: var(--size-4-3);
+}
+
+.pm-issues__item {
+	color: var(--text-muted);
+}
+
+.pm-issues__detail {
+	margin-left: var(--size-2-2);
+	color: var(--text-faint);
+}
+
+/* ───────────────────────────── 统计行 ───────────────────────────── */
+
+.pm-stats {
+	padding-top: var(--size-2-2);
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
+.pm-stats__hint {
+	margin-left: var(--size-2-2);
+	color: var(--text-faint);
+}
+
+.pm-empty {
+	padding: var(--size-4-4);
+	text-align: center;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
+/* ───────────────────────────── 分组面板 ───────────────────────────── */
+
+.pm-group-panel__section + .pm-group-panel__section {
+	margin-top: var(--size-4-3);
+}
+
+.pm-group-panel__divider {
+	margin: var(--size-4-3) 0;
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+.pm-section-title {
+	margin: 0 0 var(--size-4-2) 0;
+	padding-bottom: var(--size-2-2);
 	font-size: var(--font-ui-medium);
+	font-weight: var(--font-semibold);
+	color: var(--text-normal);
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.pm-card-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+	gap: var(--size-4-2);
+}
+
+.pm-card {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-2-2);
+	padding: var(--size-4-2);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	background: var(--background-primary-alt);
+}
+
+.pm-card--quick {
+	border-left: 3px solid var(--interactive-accent);
+}
+
+.pm-card {
+	/* 联动高亮（悬停对方面板时）：描边而不改背景，避免与 hover 抢视觉 */
+	transition: box-shadow 0.12s ease;
+}
+
+.pm-card.is-linked {
+	box-shadow: 0 0 0 2px var(--text-accent);
+}
+
+.pm-card__head {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--size-2-2);
+}
+
+.pm-card__count {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	margin-bottom: var(--size-2-1);
+}
+
+/* ── 分组容器（面板的第一层：分组 → 项目，与甘特「分节 → 任务条」一一对应） ── */
+
+.pm-group-list {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-2);
+}
+
+.pm-group {
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	background: var(--background-secondary);
+	overflow: hidden;
+}
+
+.pm-group.is-linked {
+	box-shadow: 0 0 0 2px var(--text-accent);
+}
+
+.pm-group__head {
+	display: flex;
+	align-items: center;
+	gap: var(--size-2-2);
+	width: 100%;
+	padding: var(--size-2-3) var(--size-4-2);
+	border: none;
+	border-radius: 0;
+	background: var(--background-secondary);
+	color: var(--text-normal);
+	font-size: var(--font-ui-small);
+	font-weight: var(--font-semibold);
+	text-align: left;
+	cursor: pointer;
+}
+
+.pm-group__head:hover {
+	background: var(--background-modifier-hover);
+}
+
+.pm-group__head:focus-visible {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: -2px;
+}
+
+/* 与甘特分节头共用的折叠箭头 */
+.pm-chevron {
+	flex: 0 0 auto;
+	width: 1em;
+	color: var(--text-faint);
+}
+
+.pm-group__title {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.pm-group__title a {
+	color: inherit;
+	text-decoration: none;
+}
+
+.pm-group__title a:hover {
+	color: var(--text-accent);
+	text-decoration: underline;
+}
+
+.pm-group__badges {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--size-2-1);
+	flex-shrink: 0;
+}
+
+.pm-group__body {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-2);
+	padding: var(--size-4-2);
+}
+
+.pm-group.is-collapsed {
+	background: var(--background-primary-alt);
+}
+
+/* 组内分桶：带资料（框框）/ 不带资料（列表）/ 快速项目（列表） */
+.pm-group__bucket {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-2-2);
+}
+
+.pm-group__bucket-label {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+}
+
+/* ── 紧凑项目行（不带资料 / 快速项目） ── */
+
+.pm-project-list {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.pm-project-row {
+	display: flex;
+	align-items: center;
+	gap: var(--size-2-2);
+	padding: 2px var(--size-2-2);
+	border-radius: var(--radius-s);
+	font-size: var(--font-ui-smaller);
+}
+
+.pm-project-row:hover {
+	background: var(--background-modifier-hover);
+}
+
+/* 联动高亮（悬停甘特任务条） */
+.pm-project-row.is-linked {
+	background: var(--background-modifier-hover);
+	box-shadow: inset 2px 0 0 var(--text-accent);
+}
+
+.pm-project-row__quick {
+	flex: 0 0 auto;
+}
+
+.pm-project-row__name {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--text-normal);
+	text-decoration: none;
+}
+
+.pm-project-row__name:hover {
+	color: var(--text-accent);
+	text-decoration: underline;
+}
+
+.pm-project-row__meta {
+	display: flex;
+	align-items: center;
+	gap: var(--size-2-1);
+	flex-shrink: 0;
+	color: var(--text-muted);
+}
+
+.pm-project-row__date {
+	font-variant-numeric: tabular-nums;
+}
+
+/* 操作按钮始终可见：不能只靠 hover 才能触达（技能：移动端/可访问性） */
+.pm-project-row__actions {
+	display: flex;
+	gap: var(--size-2-1);
+	flex-shrink: 0;
+}
+
+.pm-project-row__actions .pm-btn {
+	padding: 0 var(--size-2-2);
+	font-size: var(--font-ui-smaller);
+}
+
+.pm-card__title {
+	flex: 1;
+	min-width: 0;
+	margin: 0;
+	font-size: var(--font-ui-small);
+	font-weight: var(--font-semibold);
+	overflow-wrap: anywhere;
+}
+
+.pm-card__title a {
+	color: inherit;
+	text-decoration: none;
+}
+
+.pm-card__title a:hover {
+	color: var(--text-accent);
+	text-decoration: underline;
+}
+
+.pm-card__badges {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--size-2-1);
+	flex-shrink: 0;
+}
+
+.pm-badge {
+	padding: 1px var(--size-2-2);
+	border-radius: var(--radius-s);
+	background: var(--background-modifier-border);
+	color: var(--text-normal);
+	font-size: var(--font-ui-smaller);
+	white-space: nowrap;
+}
+
+/* 注意 Obsidian 的 `--color-*-rgb` 是「逗号分隔的三元组」（如 `233, 49, 71`），
+   所以必须写成 rgba(var(...), alpha)，不能写现代语法的 `rgb(R G B / A)` 混搭——
+   混搭会让整条声明被浏览器丢弃，徽章就变成透明的。 */
+.pm-badge--warning {
+	background: rgba(var(--color-orange-rgb, 255, 150, 0), 0.2);
+	color: var(--text-normal);
+}
+
+.pm-badge--active {
+	background: rgba(var(--color-green-rgb, 0, 200, 83), 0.2);
+}
+
+.pm-badge--completed {
+	background: rgba(var(--color-cyan-rgb, 0, 191, 165), 0.2);
+}
+
+.pm-badge--cancelled {
+	background: rgba(var(--color-red-rgb, 233, 49, 71), 0.2);
+}
+
+.pm-badge--on-hold {
+	background: rgba(var(--color-orange-rgb, 255, 150, 0), 0.2);
+}
+
+.pm-progress {
+	width: 100%;
+	height: 8px;
+	border-radius: var(--radius-s);
+	background: var(--background-modifier-border);
+	overflow: hidden;
+}
+
+.pm-progress__fill {
+	width: var(--pm-progress, 0%);
+	height: 100%;
+	background: var(--interactive-accent);
+}
+
+.pm-card__list {
+	margin: 0;
+	padding-left: var(--size-4-3);
+	font-size: var(--font-ui-smaller);
+}
+
+.pm-card__list-item {
+	display: flex;
+	align-items: center;
+	gap: var(--size-2-2);
+	color: var(--text-muted);
+}
+
+.pm-card__list-item a {
+	color: var(--text-muted);
+	text-decoration: none;
+	overflow-wrap: anywhere;
+}
+
+.pm-card__list-item a:hover {
+	color: var(--text-accent);
+	text-decoration: underline;
+}
+
+.pm-card__notes-empty {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+}
+
+.pm-card__date {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+.pm-card__actions {
+	display: flex;
+	gap: var(--size-2-2);
+	margin-top: auto;
+}
+
+/* ───────────────────────────── 甘特图 ───────────────────────────── */
+
+.pm-gantt {
+	position: relative;
+	display: flex;
+	width: 100%;
+	height: 100%;
+	min-height: 0;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	background: var(--background-primary);
+	overflow: hidden;
+}
+
+.pm-gantt__sidebar {
+	flex: 0 0 30%;
+	max-width: 320px;
+	min-width: 150px;
+	overflow: hidden;
+	border-right: 1px solid var(--background-modifier-border);
+	background: var(--background-primary-alt);
+}
+
+/* 必须与 gantt-view.ts 的 HEADER_HEIGHT 一致（22 + 22） */
+.pm-gantt__sidebar-head {
+	display: flex;
+	align-items: center;
+	box-sizing: border-box;
+	height: 44px;
+	padding: 0 var(--size-4-2);
+	border-bottom: 1px solid var(--background-modifier-border);
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
+.pm-gantt__sidebar-body {
+	transform: translateY(var(--pm-sidebar-offset, 0px));
+}
+
+/* 必须与 gantt-view.ts 的 SECTION_HEIGHT 一致 */
+.pm-gantt__sidebar-section {
+	box-sizing: border-box;
+	width: 100%;
+	height: 26px;
+	display: flex;
+	align-items: center;
+	gap: var(--size-2-2);
+	padding: 0 var(--size-4-2);
+	border: none;
+	border-radius: 0;
+	background: var(--background-secondary);
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	font-weight: var(--font-semibold);
+	text-align: left;
+	cursor: pointer;
+}
+
+.pm-gantt__sidebar-section:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.pm-gantt__sidebar-section:focus-visible {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: -2px;
+}
+
+.pm-gantt__sidebar-section.is-collapsed {
+	color: var(--text-faint);
+}
+
+.pm-gantt__sidebar-section-name {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* 必须与 gantt-view.ts 的 ROW_HEIGHT 一致 */
+.pm-gantt__sidebar-row {
+	box-sizing: border-box;
+	height: 30px;
+	display: flex;
+	align-items: center;
+	gap: var(--size-2-2);
+	padding: 0 var(--size-4-2);
+	border-bottom: 1px solid var(--background-modifier-border-hover, transparent);
+}
+
+.pm-gantt__sidebar-row--highlight {
+	background: var(--text-selection);
+}
+
+/* 双向悬停联动：与 --highlight（定时闪烁、表示「我在这」）区分开，
+   这里是「你指的那个在这」，跟着指针走 */
+.pm-gantt__sidebar-row.is-linked {
+	background: var(--background-modifier-hover);
+	box-shadow: inset 2px 0 0 var(--text-accent);
+}
+
+.pm-gantt__sidebar-name {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: var(--font-ui-smaller);
+}
+
+.pm-gantt__sidebar-name a {
+	color: var(--text-normal);
+	text-decoration: none;
+}
+
+.pm-gantt__sidebar-name a:hover {
+	color: var(--text-accent);
+	text-decoration: underline;
+}
+
+.pm-gantt__sidebar-meta {
+	display: flex;
+	align-items: center;
+	gap: var(--size-2-1);
+	flex-shrink: 0;
+}
+
+.pm-gantt__fallback-hint {
+	padding: 0 var(--size-2-1);
+	border-radius: var(--radius-s);
+	background: rgba(var(--color-orange-rgb, 255, 150, 0), 0.2);
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
+.pm-gantt__edit-btn {
+	padding: 0 var(--size-2-2);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background: transparent;
+	color: var(--text-faint);
+	font-size: var(--font-ui-smaller);
+	cursor: pointer;
+}
+
+.pm-gantt__edit-btn:hover {
+	color: var(--text-normal);
+	background: var(--background-modifier-hover);
+}
+
+/* 承担纵向 + 横向滚动；表头 sticky 在其中生效 */
+.pm-gantt__timeline {
+	flex: 1;
+	min-width: 0;
+	overflow: auto;
+}
+
+.pm-gantt__canvas {
+	position: relative;
+	width: var(--pm-canvas-width, 100%);
+}
+
+.pm-gantt__header {
+	position: sticky;
+	top: 0;
+	z-index: 2;
+	background: var(--background-primary);
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.pm-gantt__header-row {
+	display: flex;
+	box-sizing: border-box;
+	height: 22px;
+}
+
+.pm-gantt__header-row--upper {
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	font-weight: var(--font-semibold);
+}
+
+.pm-gantt__header-row--lower {
+	color: var(--text-faint);
+	font-size: var(--font-ui-smaller);
+}
+
+.pm-gantt__header-cell {
+	box-sizing: border-box;
+	flex: 0 0 auto;
+	width: var(--pm-cell-width, 40px);
+	min-width: 0;
+	display: flex;
+	align-items: center;
+	overflow: hidden;
+	border-left: 1px solid var(--background-modifier-border);
+}
+
+.pm-gantt__header-label {
+	padding-left: var(--size-2-1);
+	white-space: nowrap;
+}
+
+.pm-gantt__svg {
+	display: block;
+}
+
+.pm-gantt__grid-line {
+	stroke: var(--background-modifier-border);
+	stroke-width: 1;
+}
+
+.pm-gantt__today {
+	stroke: var(--color-red);
+	stroke-width: 1;
+	stroke-dasharray: 4 3;
+}
+
+.pm-gantt__bar {
+	fill: var(--text-muted);
+	cursor: pointer;
+}
+
+.pm-gantt__bar:hover {
+	filter: brightness(1.15);
+}
+
+.pm-gantt__bar:focus-visible {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: 1px;
+}
+
+.pm-gantt__bar[data-fallback="true"] {
+	stroke: var(--color-orange);
+	stroke-width: 1;
+	stroke-dasharray: 4 3;
+}
+
+.pm-gantt__bar--active {
+	fill: var(--interactive-accent);
+}
+
+.pm-gantt__bar--completed {
+	fill: var(--color-cyan);
+}
+
+.pm-gantt__bar--cancelled {
+	fill: var(--text-faint);
+}
+
+.pm-gantt__bar--on-hold {
+	fill: var(--color-orange);
+}
+
+.pm-gantt__bar--inbox,
+.pm-gantt__bar--draft {
+	fill: var(--color-blue);
+}
+
+.pm-gantt__bar--archived {
+	fill: var(--color-purple);
+}
+
+.pm-gantt__bar--unknown {
+	fill: var(--text-faint);
+}
+
+.pm-gantt__bar--highlight {
+	stroke: var(--text-accent);
+	stroke-width: 2;
+}
+
+/* 放在最后：联动描边要压过 data-fallback 的虚线描边 */
+.pm-gantt__bar.is-linked {
+	stroke: var(--text-accent);
+	stroke-width: 2;
+}
+
+.pm-gantt__bar-progress {
+	fill: var(--color-green);
+	opacity: 0.55;
+}
+
+.pm-gantt__handle {
+	fill: var(--background-modifier-border-hover, var(--text-faint));
+	opacity: 0;
+	cursor: ew-resize;
+}
+
+.pm-gantt:hover .pm-gantt__handle {
+	opacity: 0.7;
+}
+
+.pm-gantt__tooltip {
+	position: absolute;
+	left: var(--pm-tip-x, 0);
+	top: var(--pm-tip-y, 0);
+	z-index: 3;
+	padding: var(--size-2-2) var(--size-2-3);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background: var(--background-primary-alt);
+	color: var(--text-normal);
+	font-size: var(--font-ui-smaller);
+	font-variant-numeric: tabular-nums;
+	pointer-events: none;
+	white-space: nowrap;
+}
+
+.pm-gantt--dragging {
+	cursor: ew-resize;
+	user-select: none;
+}
+
+/* 拖拽中：进度覆盖层与手柄仍停在原坐标，会看着像「条断了」；
+   它们不是被拖的对象，直接藏起来，只留纯色任务条跟随指针。
+   选择器写成三节（.pm-gantt.pm-gantt--dragging …）是为了与上面
+   `.pm-gantt:hover .pm-gantt__handle` 同权重并靠后者胜出，否则悬停时会把手柄又显出来。 */
+.pm-gantt.pm-gantt--dragging .pm-gantt__bar-progress,
+.pm-gantt.pm-gantt--dragging .pm-gantt__handle {
+	opacity: 0;
+}
+
+/* ───────────────────────────── Modal ───────────────────────────── */
+
+.pm-modal__hint {
+	margin: var(--size-2-2) 0 var(--size-4-2) 0;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	overflow-wrap: anywhere;
+}
+
+.pm-modal__error {
+	color: var(--text-error);
+	font-size: var(--font-ui-smaller);
+	min-height: 1.2em;
+	margin-bottom: var(--size-2-2);
+}
+
+.pm-modal__actions {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	gap: var(--size-2-3);
+	margin-top: var(--size-4-2);
+}
+
+.pm-modal__json {
+	width: 100%;
+	font-family: var(--font-monospace);
+	font-size: var(--font-ui-smaller);
+}
+
+/* 二次确认态：只加自己的类，不去改宿主的 .mod-warning */
+.pm-modal__actions .pm-confirm {
+	background: var(--color-red);
+	color: var(--text-on-accent);
+	border-color: var(--color-red);
+}
+
+/* ───────────────────────────── 设置页 ───────────────────────────── */
+
+.pm-settings__json {
+	width: 100%;
+	font-family: var(--font-monospace);
+	font-size: var(--font-ui-smaller);
 }

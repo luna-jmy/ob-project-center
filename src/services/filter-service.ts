@@ -1,4 +1,5 @@
-import { PROJECT_STATUSES, ProjectItem, ProjectStatus } from "../types";
+import { DefaultYearFilter, PROJECT_STATUSES, ProjectItem, ProjectStatus } from "../types";
+import { addDaysIso, daysInMonth, formatIso, todayIso } from "../utils/date";
 
 /**
  * 筛选/排序管道（SPEC §4 F2）—— 纯函数，零 Obsidian 依赖。
@@ -38,6 +39,16 @@ export interface FilterState {
 	/** 已 lowercase 的搜索词（视图层负责归一） */
 	search: string;
 	dateRange: DateRangeState;
+	/**
+	 * 项目**开始年度**快捷筛选（null = 不限）。按 `startDate` 的年份严格匹配。
+	 *
+	 * 与 `dateRange` 的分工：dateRange 管「区间交集」，年度管「落在哪一年」。
+	 * 年度是严格匹配——**无开始日期的项目不匹配任何年度**（要的就是把列表压下来），
+	 * 这一点与 dateRange「无日期项目保留」的 overview 语义刻意不同，两者都有测试固化。
+	 */
+	startYear: number | null;
+	/** 项目**结束年度**快捷筛选（null = 不限）。按 `dueDate` 的年份严格匹配。 */
+	endYear: number | null;
 }
 
 export function defaultFilterState(): FilterState {
@@ -48,7 +59,60 @@ export function defaultFilterState(): FilterState {
 		currentAreas: [],
 		search: "",
 		dateRange: { preset: "all", start: null, end: null },
+		startYear: null,
+		endYear: null,
 	};
+}
+
+/**
+ * 视图初始筛选状态（打开 dashboard 时的默认值）。
+ *
+ * 三条业务默认：
+ * - 隐藏已完成（SPEC F2.1，对齐现有脚本 `config.status = "hide"`）；
+ * - **开始年度 = 当前年度**（用户要求 2026-09-18：默认只看今年启动的项目，否则项目太多）；
+ * - 区间/领域/搜索均不限。
+ *
+ * 与 `defaultFilterState()` 的区别：后者是**中立基线**（什么都不筛），
+ * 供纯函数测试与「清除筛选」使用——清除就该看到全部，而不是又回到默认筛选。
+ *
+ * @param today 注入「今天」（决定默认年度）；省略取本地日历今天
+ * @param yearFilter 默认年度档（来自设置 defaultYearFilter）；`none` 表示默认不限年度
+ */
+export function initialFilterState(
+	today?: string,
+	yearFilter: DefaultYearFilter = "current",
+): FilterState {
+	return {
+		...defaultFilterState(),
+		statuses: presetToStatuses("hide-completed"),
+		startYear: yearFilter === "none" ? null : currentYearOf(today ?? todayIso()),
+	};
+}
+
+/** ISO 日期 → 年份；非法/缺失返回 null */
+export function yearOf(iso: string | null): number | null {
+	if (iso === null || !/^\d{4}/.test(iso)) return null;
+	const year = Number(iso.slice(0, 4));
+	return Number.isFinite(year) ? year : null;
+}
+
+function currentYearOf(todayIsoValue: string): number {
+	return yearOf(todayIsoValue) ?? new Date().getFullYear();
+}
+
+/**
+ * 数据里出现过的年度（开始年度 ∪ 结束年度），新的在前。
+ * 下拉选项由数据驱动——列表里不会出现「一个项目都没有的年份」。
+ */
+export function collectYears(items: ProjectItem[]): number[] {
+	const years = new Set<number>();
+	for (const item of items) {
+		const start = yearOf(item.startDate);
+		if (start !== null) years.add(start);
+		const end = yearOf(item.dueDate);
+		if (end !== null) years.add(end);
+	}
+	return [...years].sort((a, b) => b - a);
 }
 
 /** 快捷档 → 多选集合（视图层把 chips 状态映射为这三档之一） */
@@ -70,16 +134,16 @@ export function presetToStatuses(preset: StatusPreset): ProjectStatus[] {
  */
 export function resolveDateRange(
 	preset: Exclude<DateRangePreset, "custom">,
-	todayIso: string,
+	today: string,
 ): { start: string | null; end: string | null } {
-	const [year, month, day] = todayIso.split("-").map(Number);
+	const [year, month, day] = today.split("-").map(Number);
 	const base = new Date(Date.UTC(year, month - 1, day));
 	switch (preset) {
 		case "all":
 			return { start: null, end: null };
 		case "week": {
 			const dow = base.getUTCDay(); // 0 = Sunday（脚本行为）
-			const start = addDaysIso(todayIso, -dow);
+			const start = addDaysIso(today, -dow);
 			return { start, end: addDaysIso(start, 6) };
 		}
 		case "month":
@@ -100,22 +164,20 @@ export function resolveDateRange(
 	}
 }
 
-function daysInMonth(year: number, month: number): number {
-	return new Date(Date.UTC(year, month, 0)).getUTCDate();
+export interface FilterOptions {
+	/** 注入「今天」（相对预设区间解析用）；省略时取本地日历今天。注入便于测试与跨日刷新。 */
+	today?: string;
 }
 
-function addDaysIso(iso: string, days: number): string {
-	const [year, month, day] = iso.split("-").map(Number);
-	const date = new Date(Date.UTC(year, month - 1, day + days));
-	return date.toISOString().slice(0, 10);
-}
-
-function formatIso(year: number, month: number, day: number): string {
-	return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-}
-
-/** 筛选管道：status → area → search → date（AND 组合；F2.7 一套管道两处渲染） */
-export function applyFilters(items: ProjectItem[], state: FilterState): ProjectItem[] {
+/**
+ * 筛选管道：status → area → search → date → year（AND 组合；F2.7 一套管道两处渲染）
+ * @param options.today 相对日期预设（本周/本月/本季度/本年）与默认年度的基准日
+ */
+export function applyFilters(
+	items: ProjectItem[],
+	state: FilterState,
+	options: FilterOptions = {},
+): ProjectItem[] {
 	let result = items;
 
 	if (state.statuses.length > 0) {
@@ -126,9 +188,33 @@ export function applyFilters(items: ProjectItem[], state: FilterState): ProjectI
 
 	result = filterByArea(result, state);
 	result = filterBySearch(result, state.search);
-	result = filterByDateRange(result, state.dateRange);
+	result = filterByDateRange(result, state.dateRange, options.today ?? todayIso());
+	result = filterByYear(result, state);
 
 	return result;
+}
+
+/**
+ * 年度筛选（用户要求 2026-09-18）—— 把「项目太多」这件事压下来的主力。
+ *
+ * 严格匹配语义：选了「开始年度 = 2026」就只留 `startDate` 落在 2026 的项目；
+ * **无开始日期的项目不匹配任何年度**（否则这层筛选对没填日期的项目完全失效）。
+ *
+ * 刻意**不**套用 long-term 豁免：豁免是 `dateRange` 区间筛选沿袭现有脚本的规则，
+ * 年度筛选是新增能力、目的是缩小范围，豁免它等于把这类项目又放回来。
+ * 两处口径差异都在测试里写明了。
+ */
+function filterByYear(items: ProjectItem[], state: FilterState): ProjectItem[] {
+	if (state.startYear === null && state.endYear === null) return items;
+	return items.filter((item) => {
+		if (state.startYear !== null && yearOf(item.startDate) !== state.startYear) {
+			return false;
+		}
+		if (state.endYear !== null && yearOf(item.dueDate) !== state.endYear) {
+			return false;
+		}
+		return true;
+	});
 }
 
 function filterByArea(items: ProjectItem[], state: FilterState): ProjectItem[] {
@@ -153,11 +239,15 @@ function filterBySearch(items: ProjectItem[], search: string): ProjectItem[] {
 	return items.filter((item) => item.file.name.toLowerCase().includes(keyword));
 }
 
-function filterByDateRange(items: ProjectItem[], range: DateRangeState): ProjectItem[] {
+function filterByDateRange(
+	items: ProjectItem[],
+	range: DateRangeState,
+	today: string,
+): ProjectItem[] {
 	const resolved =
 		range.preset === "custom"
 			? { start: range.start, end: range.end }
-			: resolveDateRange(range.preset, todayIso());
+			: resolveDateRange(range.preset, today);
 	if (resolved.start === null && resolved.end === null) {
 		return items;
 	}
@@ -207,11 +297,6 @@ function matchDateFilter(
 	return true;
 }
 
-/** ISO 今天（dateRange 非 custom 预设用；生产环境由视图层日期驱动刷新） */
-function todayIso(): string {
-	return new Date().toISOString().slice(0, 10);
-}
-
 /** 排序（F2.6）：不修改原数组 */
 export function sortProjects(items: ProjectItem[], mode: SortMode): ProjectItem[] {
 	const copy = [...items];
@@ -243,4 +328,56 @@ function comparePriority(a: string | null, b: string | null): number {
 	if (rankA === -1) return 1; // 无效/缺失排最后
 	if (rankB === -1) return -1;
 	return rankA - rankB;
+}
+
+// ────────────────────────── 视图状态的纯逻辑 ──────────────────────────
+// 这些原本住在 filter-bar.ts（视图层），但它们是纯函数且决定「筛选是否生效」，
+// 放在服务层才可以不依赖 DOM 直接测——视图只负责把结果画成控件。
+
+/** 多选开关：已选则取消，未选则追加（保序） */
+export function toggle<T>(list: T[], value: T): T[] {
+	return list.includes(value) ? list.filter((item) => item !== value) : [...list, value];
+}
+
+/** 当前 status 多选属于哪一档快捷预设（都不匹配则视为「全部」） */
+export function detectStatusPreset(statuses: ProjectStatus[]): StatusPreset {
+	const selected = [...statuses].sort();
+	if (sameSet(selected, [...presetToStatuses("hide-completed")].sort())) {
+		return "hide-completed";
+	}
+	if (sameSet(selected, [...presetToStatuses("completed-only")].sort())) {
+		return "completed-only";
+	}
+	return "all";
+}
+
+function sameSet(a: string[], b: string[]): boolean {
+	return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
+/**
+ * 是否存在「非默认」筛选（决定要不要显示「清除筛选」）。
+ *
+ * 基准是**视图默认档**而不是空集合：默认是「隐藏已完成 + 开始年度=当年」，
+ * 拿空集合比会让清除按钮一打开就常驻。
+ */
+export function hasActiveFilter(
+	state: FilterState,
+	today?: string,
+	yearFilter: DefaultYearFilter = "current",
+): boolean {
+	const base = initialFilterState(today, yearFilter);
+	const isDefaultStatuses = sameSet(
+		[...state.statuses].sort(),
+		[...base.statuses].sort(),
+	);
+	return (
+		!isDefaultStatuses ||
+		state.areas.length > 0 ||
+		state.areaMode !== "selected" ||
+		state.search.trim().length > 0 ||
+		state.dateRange.preset !== "all" ||
+		state.startYear !== base.startYear ||
+		state.endYear !== base.endYear
+	);
 }

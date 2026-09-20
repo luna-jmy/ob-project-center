@@ -11,10 +11,14 @@ export type ParsedDate =
 	| { kind: "invalid"; raw: string }
 	| null;
 
-/** status 规范化：英文枚举直通；中文别名按开关映射；其余 null。 */
+/**
+ * status 规范化：英文枚举直通；中文别名按开关映射；其余 null。
+ * @param aliases 别名映射表（SPEC §5.3 可被设置覆盖）；省略时用模板默认表
+ */
 export function normalizeStatus(
 	raw: unknown,
 	chineseAliasCompat: boolean,
+	aliases: Readonly<Record<string, ProjectStatus>> = STATUS_CHINESE_ALIASES,
 ): ProjectStatus | null {
 	if (typeof raw !== "string") return null;
 	const value = raw.trim();
@@ -23,7 +27,7 @@ export function normalizeStatus(
 		return canonical;
 	}
 	if (chineseAliasCompat) {
-		const aliased = STATUS_CHINESE_ALIASES[value];
+		const aliased = aliases[value];
 		if (aliased !== undefined) return aliased;
 	}
 	return null;

@@ -56,7 +56,11 @@ export function buildProjectItem(
 		return { item: null, issues: [] };
 	}
 
-	const status = normalizeStatus(fm[mapping.status], settings.chineseAliasCompat);
+	const status = normalizeStatus(
+		fm[mapping.status],
+		settings.chineseAliasCompat,
+		settings.statusAliases,
+	);
 	if (status === null && fm[mapping.status] !== undefined && fm[mapping.status] !== null) {
 		issues.push({
 			field: "status",
