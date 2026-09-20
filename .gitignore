@@ -18,5 +18,5 @@ Thumbs.db
 .workbuddy/
 SPEC.md
 
-# 发布产物：打包好的 zip 走 GitHub Release 附件，不进版本库
-/project-master-*.zip
+# 发布产物：dist/ 放打包好的 zip（npm run package），只作 Release 附件，不进版本库
+dist/
