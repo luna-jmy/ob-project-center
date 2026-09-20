@@ -1,4 +1,5 @@
 import { ProjectMasterSettings, ProjectStatus } from "../types";
+import { isValidIso } from "../utils/date";
 import { GanttModel, GanttRow } from "./gantt-model";
 
 /**
@@ -42,7 +43,11 @@ export function exportMermaid(model: GanttModel, settings: ProjectMasterSettings
 	let code = "```mermaid\ngantt\n";
 	code += `    title ${settings.mermaidTitle}\n`;
 	code += "    dateFormat YYYY-MM-DD\n";
-	code += "    axisFormat %y-%m\n\n";
+	code += "    axisFormat %y-%m\n";
+	for (const directive of buildDirectives(settings)) {
+		code += `${directive}\n`;
+	}
+	code += "\n";
 
 	// 导出有两条刻意的口径差异（都在测试里固化）：
 	// 1. 分节头只看「是否多于一个分节」，不受视图折叠状态影响——导出的是数据，不是当前视图；
@@ -61,6 +66,41 @@ export function exportMermaid(model: GanttModel, settings: ProjectMasterSettings
 
 	code += "```";
 	return code;
+}
+
+/**
+ * 导出选项 → mermaid 指令行（用户要求 2026-09-20）。
+ * 顺序固定，保证同样的选项产出同样的文本（可被测试逐字比对）。
+ */
+function buildDirectives(settings: ProjectMasterSettings): string[] {
+	const lines: string[] = [];
+	if (!settings.mermaidTodayMarker) {
+		// mermaid 默认就画 today 竖线，所以要「关掉」才输出指令
+		lines.push("    todayMarker off");
+	}
+	if (settings.mermaidExcludeWeekends) {
+		lines.push("    excludes weekends");
+	}
+	const dates = parseExcludeDates(settings.mermaidExcludeDates);
+	if (dates.length > 0) {
+		lines.push(`    excludes ${dates.join(",")}`);
+	}
+	return lines;
+}
+
+/**
+ * 排除日期输入 → 合法 ISO 日期列表。
+ * 只接受 `YYYY-MM-DD` 且是真日历日期——mermaid 的 excludes 只认这个格式，
+ * 传「9/1」这类写法会让整个 gantt 解析失败，宁可丢掉也不能污染导出。
+ */
+export function parseExcludeDates(raw: string): string[] {
+	const out: string[] = [];
+	for (const chunk of raw.split(/[,，\n\s]+/)) {
+		const value = chunk.trim();
+		if (!isValidIso(value) || out.includes(value)) continue;
+		out.push(value);
+	}
+	return out;
 }
 
 function taskLine(row: GanttRow, usedIds: Map<string, number>): string {

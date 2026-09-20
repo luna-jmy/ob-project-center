@@ -265,6 +265,29 @@ describe("甘特模型 — 外部分节（左右联动的地基）", () => {
 		expect(single.showSectionHeaders).toBe(true);
 	});
 
+	it("widens the axis to cover the axisRange when it is larger than the projects", () => {
+		const model = buildGanttModel(
+			[projectItem({ name: "a", startDate: "2026-03-10", dueDate: "2026-03-20" })],
+			settings(),
+			TODAY,
+			{ axisRange: { start: "2026-03-01", end: "2026-03-31" } },
+		);
+		// 筛选栏选了「本月」，时间轴就该铺满整月，而不是只画项目那几天
+		expect(model.rangeStart).toBe("2026-03-01");
+		expect(model.rangeEnd).toBe("2026-03-31");
+	});
+
+	it("keeps the projects' own range when it exceeds the axisRange", () => {
+		const model = buildGanttModel(
+			[projectItem({ name: "a", startDate: "2025-01-01", dueDate: "2027-12-31" })],
+			settings(),
+			TODAY,
+			{ axisRange: { start: "2026-03-01", end: "2026-03-31" } },
+		);
+		expect(model.rangeStart).toBe("2025-01-01");
+		expect(model.rangeEnd).toBe("2027-12-31");
+	});
+
 	it("falls back to objective sections when no specs are supplied", () => {
 		const model = buildGanttModel(
 			[projectItem({ name: "a", startDate: "2026-01-01", dueDate: "2026-01-02", objective: "官网" })],

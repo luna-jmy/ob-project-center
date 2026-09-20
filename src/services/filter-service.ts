@@ -1,4 +1,10 @@
-import { DefaultYearFilter, PROJECT_STATUSES, ProjectItem, ProjectStatus } from "../types";
+import {
+	DefaultYearFilter,
+	PROJECT_STATUSES,
+	ProjectItem,
+	ProjectStatus,
+	SortMode,
+} from "../types";
 import { addDaysIso, daysInMonth, formatIso, todayIso } from "../utils/date";
 
 /**
@@ -19,7 +25,8 @@ export const COMPLETED_LIKE_STATUSES: ProjectStatus[] = [
 export type StatusPreset = "all" | "hide-completed" | "completed-only";
 export type DateRangePreset = "all" | "week" | "month" | "quarter" | "year" | "custom";
 export type AreaMode = "selected" | "include-current" | "exclude-current";
-export type SortMode = "due-asc" | "name" | "priority";
+// SortMode 的定义收口在 types.ts（避免两处各写一份、加档位时漏改其一）
+export type { SortMode };
 
 export interface DateRangeState {
 	preset: DateRangePreset;
@@ -297,7 +304,13 @@ function matchDateFilter(
 	return true;
 }
 
-/** 排序（F2.6）：不修改原数组 */
+/**
+ * 排序（F2.6）：不修改原数组。
+ *
+ * `manual` 档在这里是恒等变换——手动顺序是**分组维度**的记录（哪个分组在前、
+ * 组内哪个项目在前），由 manual-order.ts 在分组之后重排，
+ * 全局扁平的 sort 表达不了它，硬塞进来只会两处逻辑打架。
+ */
 export function sortProjects(items: ProjectItem[], mode: SortMode): ProjectItem[] {
 	const copy = [...items];
 	switch (mode) {
@@ -309,6 +322,8 @@ export function sortProjects(items: ProjectItem[], mode: SortMode): ProjectItem[
 			return copy.sort((a, b) => (a.file.name < b.file.name ? -1 : a.file.name > b.file.name ? 1 : 0));
 		case "priority":
 			return copy.sort((a, b) => comparePriority(a.priority, b.priority));
+		case "manual":
+			return copy;
 	}
 }
 

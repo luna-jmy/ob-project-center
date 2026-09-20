@@ -8,7 +8,7 @@
  */
 
 /** 设置结构版本（新增/改动字段时递增，迁移函数见 settings-migration.ts） */
-export const SETTINGS_VERSION = 3;
+export const SETTINGS_VERSION = 4;
 
 /** 规范化项目状态（canonical，机器值全小写英文） */
 export type ProjectStatus =
@@ -103,6 +103,8 @@ export interface FieldMappingConfig {
 	longTerm: string;
 	mainProject: string;
 	projectId: string;
+	/** 甘特条自定义颜色（可写 #hex / var(--x) / 颜色名） */
+	color: string;
 	/** tags 中用于补充识别项目的标签 */
 	identifyTag: string;
 }
@@ -124,12 +126,14 @@ export const DEFAULT_FIELD_MAPPING: FieldMappingConfig = {
 	longTerm: "long-term",
 	mainProject: "main-project",
 	projectId: "project-id",
+	color: "color",
 	identifyTag: "project",
 };
 
 export type DateFallbackStrategy = "offset7" | "mark-invalid";
 export type GroupingMode = "folder" | "objective" | "area";
-export type SortMode = "due-asc" | "name" | "priority";
+/** `manual` = 用户在面板上拖动排出来的顺序（见 services/manual-order.ts） */
+export type SortMode = "due-asc" | "name" | "priority" | "manual";
 export type ZoomMode = "day" | "week" | "month";
 
 /**
@@ -193,8 +197,21 @@ export interface ProjectMasterSettings {
 	hideCancelledInGantt: boolean;
 	/** 「资料/笔记」子文件夹名（新建带文件夹的项目时可一并创建） */
 	materialsFolderName: string;
+	/**
+	 * 手动排序：分组顺序，按分组模式分别记录（键 = "folder" / "objective" / "area"）。
+	 * 只有排序档为「手动」时才生效；拖动分组后自动切到该档。
+	 */
+	manualGroupOrder: Record<string, string[]>;
+	/** 手动排序：分组内项目顺序（键 = `${分组模式}::${分组 key}`） */
+	manualProjectOrder: Record<string, string[]>;
 	/** Mermaid 导出标题（SPEC F1.7，对齐 projectGantt.js） */
 	mermaidTitle: string;
+	/** Mermaid 导出：是否显示「今天」的竖线（关掉时输出 todayMarker off） */
+	mermaidTodayMarker: boolean;
+	/** Mermaid 导出：是否排除周末（excludes weekends） */
+	mermaidExcludeWeekends: boolean;
+	/** Mermaid 导出：额外排除的日期，逗号分隔（国内假期用），输出 excludes 列表 */
+	mermaidExcludeDates: string;
 	/** 无 objective 项目的 Mermaid 分节名（对齐 projectGantt.js「默认项目」） */
 	mermaidSectionFallback: string;
 	/** 「导出到笔记」的落点标记（复用 gantt-builder 占位块，SPEC F1.7） */
@@ -223,7 +240,12 @@ export const DEFAULT_SETTINGS: ProjectMasterSettings = {
 	maxNotesPerProject: 5,
 	hideCancelledInGantt: true,
 	materialsFolderName: "资料",
+	manualGroupOrder: {},
+	manualProjectOrder: {},
 	mermaidTitle: "项目进度甘特图",
+	mermaidTodayMarker: true,
+	mermaidExcludeWeekends: false,
+	mermaidExcludeDates: "",
 	mermaidSectionFallback: "默认项目",
 	mermaidMarkerStart: "%% gantt-builder:start %%",
 	mermaidMarkerEnd: "%% gantt-builder:end %%",
@@ -245,6 +267,8 @@ export interface ProjectItem {
 	longTerm: boolean;
 	mainProject: boolean;
 	projectId: string | null;
+	/** 甘特条自定义颜色；未设置或格式非法时为 null（非法时另出 issue 提示） */
+	color: string | null;
 	projectLeader: string | null;
 	projectMembers: string[];
 	tags: string[];

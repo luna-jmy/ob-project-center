@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildGanttModel } from "../src/gantt/gantt-model";
-import { exportMermaid, wrapInMarkers } from "../src/gantt/mermaid-export";
+import { exportMermaid, parseExcludeDates, wrapInMarkers } from "../src/gantt/mermaid-export";
 import { projectItem, settings } from "./fixtures";
 
 const TODAY = "2026-09-18";
@@ -179,6 +179,55 @@ describe("Mermaid 导出 — 与渲染层共用兜底日期", () => {
 				"\n" +
 				"```",
 		);
+	});
+});
+
+describe("Mermaid 导出 — 选项指令（用户要求 2026-09-20）", () => {
+	const item = projectItem({ name: "a", startDate: "2026-01-01", dueDate: "2026-01-02" });
+
+	it("emits nothing extra with the defaults (stay byte-identical to projectGantt.js)", () => {
+		const output = exportOf([item]);
+		expect(output).toContain("    axisFormat %y-%m\n\n");
+	});
+
+	it("turns the today marker off only when the option is off", () => {
+		expect(exportOf([item], { mermaidTodayMarker: false })).toContain("    todayMarker off\n");
+		expect(exportOf([item], { mermaidTodayMarker: true })).not.toContain("todayMarker");
+	});
+
+	it("emits excludes weekends when asked", () => {
+		expect(exportOf([item], { mermaidExcludeWeekends: true })).toContain(
+			"    excludes weekends\n",
+		);
+	});
+
+	it("emits an excludes list for extra dates", () => {
+		const output = exportOf([item], {
+			mermaidExcludeDates: "2026-10-01, 2026-10-02\n2026-10-03",
+		});
+		expect(output).toContain("    excludes 2026-10-01,2026-10-02,2026-10-03\n");
+	});
+
+	it("combines all three directives in a stable order", () => {
+		const output = exportOf([item], {
+			mermaidTodayMarker: false,
+			mermaidExcludeWeekends: true,
+			mermaidExcludeDates: "2026-10-01",
+		});
+		expect(output).toContain(
+			"    axisFormat %y-%m\n    todayMarker off\n    excludes weekends\n    excludes 2026-10-01\n\n",
+		);
+	});
+
+	it("drops unparseable exclude dates instead of breaking the whole diagram", () => {
+		// mermaid 的 excludes 只认 YYYY-MM-DD；传「10/1」会让整张图解析失败，宁可丢掉
+		expect(parseExcludeDates("10/1, 2026-13-01, 2026-02-30, 2026-10-01")).toEqual([
+			"2026-10-01",
+		]);
+	});
+
+	it("dedupes exclude dates", () => {
+		expect(parseExcludeDates("2026-10-01,2026-10-01")).toEqual(["2026-10-01"]);
 	});
 });
 

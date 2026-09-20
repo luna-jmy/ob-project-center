@@ -7,25 +7,22 @@ import {
 	splitByKind,
 } from "../services/grouping-service";
 import { GroupingMode, PRIORITY_EMOJI, ProjectItem, STATUS_EMOJI, ProjectStatus } from "../types";
+import { DragReorder } from "./drag-reorder";
 
 /**
- * 分组面板（SPEC §4 F3 + 用户口径 2026-09-18）—— 规则全部来自 grouping-service，这里只画与转发交互。
+ * 分组面板（SPEC §4 F3 + 用户口径 2026-09-18 / 2026-09-20）—— 规则全部来自
+ * grouping-service，这里只画与转发交互。
  *
  * ── 结构：两层，与甘特图一一对应 ──────────────────────────────────────
- *   分组（分组名 + 折叠开关）
- *     └─ 项目
- * 甘特图就是「分节 → 任务条」两层，面板照抄这个结构，`key` 与甘特分节完全一致，
- * 所以折叠、定位、悬停高亮都能靠同一个 key 对上。
+ *   分组（分组名 + 折叠开关 + 拖动手柄）
+ *     └─ 项目（带资料 → 独立框框；不带资料 / 快速项目 → 紧凑列表）
+ * `key` 与甘特分节完全一致，所以折叠、定位、悬停高亮、拖动排序都能靠同一个 key 对上。
  *
- * ── 组内分桶：先看「快速项目」，再看「有没有资料」 ────────────────────
- *   · 带资料的项目 → 各自一个独立框框（有进度、资料清单、日期、操作）
- *   · 不带资料的项目 → 一个紧凑列表（只有名字、徽章、日期、操作）
- *   · 快速项目 → 另一个紧凑列表（⚡ 标记；它没有自己的文件夹，因而不可能有资料）
- * 只有一个桶非空时不显示桶标题——文件夹分组下「一个分组一个项目」是最常见的情况，
- * 多一层标题纯属噪音；而文件夹模式下这个唯一项目会直接顶上分组标题，
- * 避免「分组名」和「项目名」明明是同一个词却出现两次。
- *
- * 值分组（按目标/领域）下这几桶会同时出现，桶标题才有意义。
+ * ── 事件模型：全部委托 ───────────────────────────────────────────────
+ * 面板每次刷新整体重建，若按元素注册监听器，刷新 N 次就往 Component 上挂 N 批
+ * （元素已脱离文档却被监听器表引用着 → 真实泄漏）。所以只在构造时注册一次，
+ * 之后靠 data-* 分发：`data-open-path` / `data-focus-path` / `data-edit-path` /
+ * `data-toggle-group` / `data-drag-handle`。
  */
 
 export interface GroupPanelCallbacks {
@@ -37,6 +34,10 @@ export interface GroupPanelCallbacks {
 	onToggleCollapse(key: string): void;
 	/** 悬停某个项目 → 甘特对应任务条高亮；离开传 null */
 	onHoverProject(path: string | null): void;
+	/** 拖动分组落盘（同一区块内的新顺序） */
+	onReorderGroups(keys: string[]): void;
+	/** 拖动组内项目落盘（该分组内项目的完整新顺序） */
+	onReorderProjects(groupKey: string, paths: string[]): void;
 }
 
 export interface GroupPanelRenderOptions {
@@ -44,6 +45,8 @@ export interface GroupPanelRenderOptions {
 	/** 每个项目展示的资料条数上限（0 = 不限） */
 	maxNotes: number;
 	collapsedKeys: Set<string>;
+	/** 是否允许拖动排序（排序档为「手动」或用户刚拖过时都给 true） */
+	draggable: boolean;
 }
 
 /** 统一 QuickGroup / NormalGroup 的渲染形状，绘制逻辑只写一份 */
@@ -56,21 +59,119 @@ interface RenderableGroup {
 }
 
 export class GroupPanel {
+	private readonly dragReorder: DragReorder;
+
 	constructor(
 		private readonly component: Component,
 		private readonly host: HTMLElement,
 		private readonly callbacks: GroupPanelCallbacks,
 	) {
 		this.host.addClass("pm-group-panel");
+
+		this.dragReorder = new DragReorder(component, this.host, {
+			itemSelector: ".pm-group, .pm-card, .pm-project-row",
+			handleSelector: "[data-drag-handle]",
+			onCommit: ({ keys, container, item }) => this.handleReorderCommit(keys, container, item),
+		});
+
+		this.registerInteraction();
 	}
+
+	// ────────────────────────────── 交互（注册一次） ──────────────────────────────
+
+	private registerInteraction(): void {
+		this.component.registerDomEvent(this.host, "click", (evt) => this.onClick(evt));
+		this.component.registerDomEvent(this.host, "contextmenu", (evt) => this.onContextMenu(evt));
+		this.component.registerDomEvent(this.host, "pointerover", (evt) => {
+			this.callbacks.onHoverProject(this.linkedPathOf(evt.target));
+		});
+		this.component.registerDomEvent(this.host, "pointerout", (evt) => {
+			if (this.linkedPathOf(evt.target) === null) return;
+			if (this.linkedPathOf(evt.relatedTarget) !== null) return;
+			this.callbacks.onHoverProject(null);
+		});
+	}
+
+	private elementOf(target: EventTarget | null): Element | null {
+		const win = this.host.ownerDocument.defaultView;
+		if (win === null || !(target instanceof win.Element)) return null;
+		return target;
+	}
+
+	/** 指针所在的联动目标（项目卡片 / 项目行 / 资料行） */
+	private linkedPathOf(target: EventTarget | null): string | null {
+		const el = this.elementOf(target);
+		if (el === null) return null;
+		return el.closest("[data-path]")?.getAttribute("data-path") ?? null;
+	}
+
+	private onClick(evt: MouseEvent): void {
+		if (this.dragReorder.consumeDragClick()) return;
+		const el = this.elementOf(evt.target);
+		if (el === null) return;
+
+		// 顺序即优先级：更靠近指针的先命中（closest 从目标向上找）
+		const open = el.closest("[data-open-path]")?.getAttribute("data-open-path");
+		if (open !== null && open !== undefined) {
+			evt.preventDefault();
+			this.callbacks.onOpenNote(open);
+			return;
+		}
+		const focus = el.closest("[data-focus-path]")?.getAttribute("data-focus-path");
+		if (focus !== null && focus !== undefined) {
+			evt.preventDefault();
+			this.callbacks.onFocusProject(focus);
+			return;
+		}
+		const edit = el.closest("[data-edit-path]")?.getAttribute("data-edit-path");
+		if (edit !== null && edit !== undefined) {
+			evt.preventDefault();
+			this.callbacks.onEditProject(edit);
+			return;
+		}
+		const toggle = el.closest("[data-toggle-group]")?.getAttribute("data-toggle-group");
+		if (toggle !== null && toggle !== undefined) {
+			evt.preventDefault();
+			this.callbacks.onToggleCollapse(toggle);
+		}
+	}
+
+	/** 右键项目 → 编辑（与甘特一致的交互约定） */
+	private onContextMenu(evt: MouseEvent): void {
+		const el = this.elementOf(evt.target);
+		const card = el?.closest(".pm-card, .pm-project-row") ?? null;
+		const path = (card as HTMLElement | null)?.dataset.path;
+		if (path === undefined) return;
+		evt.preventDefault();
+		this.callbacks.onEditProject(path);
+	}
+
+	private handleReorderCommit(keys: string[], container: HTMLElement, item: HTMLElement): void {
+		if (container.classList.contains("pm-group-list")) {
+			this.callbacks.onReorderGroups(keys);
+			return;
+		}
+		// 组内项目：拖动只可能发生在某一个桶里，但落盘要记录**整个分组**的顺序，
+		// 否则另一个桶里的项目会因为「记录里没有」而被排到末尾。
+		const groupKey = item.closest(".pm-group")?.getAttribute("data-key");
+		if (groupKey === null || groupKey === undefined) return;
+		const groupEl = item.closest(".pm-group");
+		if (groupEl === null) return;
+		const order = Array.from(groupEl.querySelectorAll<HTMLElement>("[data-drag-item]"))
+			.map((el) => el.dataset.key ?? "")
+			.filter((key) => key.length > 0);
+		if (order.length === 0) return;
+		this.callbacks.onReorderProjects(groupKey, order);
+	}
+
+	// ────────────────────────────── 渲染 ──────────────────────────────
 
 	render(result: GroupingResult, options: GroupPanelRenderOptions): void {
 		this.host.empty();
 
-		const quickSet = new Set(result.quickPaths);
-		const context: RenderContext = {
+		const ctx: RenderContext = {
 			...options,
-			quickSet,
+			quickSet: new Set(result.quickPaths),
 			materials: result.materialsByPath,
 		};
 
@@ -79,7 +180,7 @@ export class GroupPanel {
 			section.createEl("h3", { cls: "pm-section-title", text: "⚡ 快速项目" });
 			const list = section.createDiv({ cls: "pm-group-list" });
 			for (const group of result.quickGroups) {
-				this.renderGroup(list, toRenderable(group), context);
+				this.renderGroup(list, toRenderable(group), ctx);
 			}
 		}
 
@@ -95,7 +196,7 @@ export class GroupPanel {
 			});
 			const list = section.createDiv({ cls: "pm-group-list" });
 			for (const group of result.normalGroups) {
-				this.renderGroup(list, toRenderable(group), context);
+				this.renderGroup(list, toRenderable(group), ctx);
 			}
 		}
 
@@ -112,8 +213,6 @@ export class GroupPanel {
 			.querySelector(`[data-path="${cssAttrEscape(path)}"]`)
 			?.classList.add("is-linked");
 	}
-
-	// ────────────────────────────── 分组 ──────────────────────────────
 
 	private renderGroup(host: HTMLElement, group: RenderableGroup, ctx: RenderContext): void {
 		const collapsed = ctx.collapsedKeys.has(group.key);
@@ -133,7 +232,7 @@ export class GroupPanel {
 			el.dataset.path = single.file.path;
 		}
 
-		this.renderGroupHead(el, group, single, collapsed);
+		this.renderGroupHead(el, group, single, collapsed, ctx);
 		const body = el.createDiv({ cls: `pm-group__body${collapsed ? " is-hidden" : ""}` });
 
 		if (single !== null) {
@@ -165,7 +264,7 @@ export class GroupPanel {
 			}
 			const list = bucket.createEl("ul", { cls: "pm-project-list" });
 			for (const project of buckets.plain) {
-				this.renderProjectRow(list, project, false);
+				this.renderProjectRow(list, project, false, ctx);
 			}
 		}
 
@@ -176,17 +275,18 @@ export class GroupPanel {
 			}
 			const list = bucket.createEl("ul", { cls: "pm-project-list" });
 			for (const project of buckets.quick) {
-				this.renderProjectRow(list, project, true);
+				this.renderProjectRow(list, project, true, ctx);
 			}
 		}
 	}
 
-	/** 分组头：折叠开关 + 标题（或项目链接）+ 徽章，整行可点折叠 */
+	/** 分组头：拖动手柄 + 折叠开关 + 标题（或项目链接）+ 徽章 */
 	private renderGroupHead(
 		groupEl: HTMLElement,
 		group: RenderableGroup,
 		single: ProjectItem | null,
 		collapsed: boolean,
+		ctx: RenderContext,
 	): void {
 		const head = groupEl.createEl("button", {
 			cls: "pm-group__head",
@@ -196,6 +296,15 @@ export class GroupPanel {
 				title: collapsed ? "展开（甘特图同步展开）" : "折叠（甘特图同步折叠）",
 			},
 		});
+		head.dataset.toggleGroup = group.key;
+
+		if (ctx.draggable) {
+			head.createSpan({
+				cls: "pm-drag-handle",
+				text: "⠿",
+				attr: { "data-drag-handle": "true", "aria-hidden": "true", title: "拖动调整分组顺序" },
+			});
+		}
 		head.createSpan({ cls: "pm-chevron", text: collapsed ? "▸" : "▾" });
 
 		const title = head.createSpan({ cls: "pm-group__title" });
@@ -206,11 +315,7 @@ export class GroupPanel {
 				text: single.file.name,
 				href: single.file.path,
 			});
-			this.component.registerDomEvent(link, "click", (evt) => {
-				evt.preventDefault();
-				evt.stopPropagation();
-				this.callbacks.onOpenNote(single.file.path);
-			});
+			link.dataset.openPath = single.file.path;
 		} else {
 			title.setText(group.title);
 		}
@@ -226,15 +331,8 @@ export class GroupPanel {
 		if (single !== null) {
 			this.renderProjectBadges(badges, single);
 		} else {
-			badges.createSpan({
-				cls: "pm-badge",
-				text: `${group.projects.length} 个项目`,
-			});
+			badges.createSpan({ cls: "pm-badge", text: `${group.projects.length} 个项目` });
 		}
-
-		this.component.registerDomEvent(head, "click", () => {
-			this.callbacks.onToggleCollapse(group.key);
-		});
 	}
 
 	// ────────────────────────────── 项目 ──────────────────────────────
@@ -249,9 +347,17 @@ export class GroupPanel {
 		const materials = ctx.materials[project.file.path] ?? [];
 		const card = host.createDiv({ cls: "pm-card" });
 		card.dataset.path = project.file.path;
-		this.bindHover(card, project.file.path);
+		card.dataset.key = project.file.path;
+		if (ctx.draggable) card.dataset.dragItem = "true";
 
 		const head = card.createDiv({ cls: "pm-card__head" });
+		if (ctx.draggable) {
+			head.createSpan({
+				cls: "pm-drag-handle",
+				text: "⠿",
+				attr: { "data-drag-handle": "true", "aria-hidden": "true", title: "拖动调整项目顺序" },
+			});
+		}
 		if (showTitle) {
 			const title = head.createEl("h4", { cls: "pm-card__title" });
 			const link = title.createEl("a", {
@@ -259,11 +365,7 @@ export class GroupPanel {
 				text: project.file.name,
 				href: project.file.path,
 			});
-			this.component.registerDomEvent(link, "click", (evt) => {
-				evt.preventDefault();
-				evt.stopPropagation();
-				this.callbacks.onOpenNote(project.file.path);
-			});
+			link.dataset.openPath = project.file.path;
 		}
 		const badges = head.createDiv({ cls: "pm-card__badges" });
 		this.renderProjectBadges(badges, project);
@@ -281,11 +383,28 @@ export class GroupPanel {
 	}
 
 	/** 不带资料 / 快速项目：紧凑列表行 */
-	private renderProjectRow(list: HTMLElement, project: ProjectItem, quick: boolean): void {
+	private renderProjectRow(
+		list: HTMLElement,
+		project: ProjectItem,
+		quick: boolean,
+		ctx: RenderContext,
+	): void {
 		const row = list.createEl("li", { cls: "pm-project-row" });
 		row.dataset.path = project.file.path;
-		this.bindHover(row, project.file.path);
+		row.dataset.key = project.file.path;
+		if (ctx.draggable) row.dataset.dragItem = "true";
 
+		if (ctx.draggable) {
+			row.createSpan({
+				cls: "pm-drag-handle",
+				text: "⠿",
+				attr: { "data-drag-handle": "true", "aria-hidden": "true", title: "拖动调整顺序" },
+			});
+		}
+		if (project.color !== null) {
+			const dot = row.createSpan({ cls: "pm-color-dot" });
+			dot.style.setProperty("--pm-dot-color", project.color);
+		}
 		if (quick) {
 			row.createSpan({
 				cls: "pm-project-row__quick",
@@ -299,11 +418,7 @@ export class GroupPanel {
 			text: project.file.name,
 			href: project.file.path,
 		});
-		this.component.registerDomEvent(link, "click", (evt) => {
-			evt.preventDefault();
-			evt.stopPropagation();
-			this.callbacks.onOpenNote(project.file.path);
-		});
+		link.dataset.openPath = project.file.path;
 
 		const meta = row.createSpan({ cls: "pm-project-row__meta" });
 		this.renderProjectBadges(meta, project);
@@ -311,8 +426,7 @@ export class GroupPanel {
 			meta.createSpan({ cls: "pm-project-row__date", text: project.dueDate });
 		}
 
-		const actions = row.createSpan({ cls: "pm-project-row__actions" });
-		this.renderProjectActions(actions, project);
+		this.renderProjectActions(row.createSpan({ cls: "pm-project-row__actions" }), project);
 	}
 
 	private renderProjectBadges(host: HTMLElement, project: ProjectItem): void {
@@ -336,22 +450,14 @@ export class GroupPanel {
 			text: "定位",
 			attr: { type: "button", "aria-label": `在甘特中定位 ${project.file.name}` },
 		});
-		this.component.registerDomEvent(focus, "click", (evt) => {
-			evt.preventDefault();
-			evt.stopPropagation();
-			this.callbacks.onFocusProject(project.file.path);
-		});
+		focus.dataset.focusPath = project.file.path;
 
 		const edit = host.createEl("button", {
 			cls: "pm-btn pm-btn--ghost",
 			text: "编辑",
 			attr: { type: "button", "aria-label": `编辑项目 ${project.file.name}` },
 		});
-		this.component.registerDomEvent(edit, "click", (evt) => {
-			evt.preventDefault();
-			evt.stopPropagation();
-			this.callbacks.onEditProject(project.file.path);
-		});
+		edit.dataset.editPath = project.file.path;
 	}
 
 	/** 资料/笔记清单（递归归集的结果，见 grouping-service） */
@@ -370,37 +476,17 @@ export class GroupPanel {
 		for (const note of shown) {
 			const li = list.createEl("li", { cls: "pm-card__list-item" });
 			li.dataset.path = note.path;
-			this.bindHover(li, note.path);
 			const link = li.createEl("a", {
 				cls: "internal-link",
 				text: note.name,
 				href: note.path,
 			});
-			this.component.registerDomEvent(link, "click", (evt) => {
-				evt.preventDefault();
-				evt.stopPropagation();
-				this.callbacks.onOpenNote(note.path);
-			});
+			link.dataset.openPath = note.path;
 		}
 		const remaining = materials.length - shown.length;
 		if (remaining > 0) {
 			wrap.createDiv({ cls: "pm-card__notes-empty", text: `还有 ${remaining} 个…` });
 		}
-	}
-
-	/** 悬停 → 通知甘特高亮；离开（且没进入另一个联动目标）→ 清空 */
-	private bindHover(el: HTMLElement, path: string): void {
-		this.component.registerDomEvent(el, "pointerenter", () => {
-			this.callbacks.onHoverProject(path);
-		});
-		this.component.registerDomEvent(el, "pointerleave", (evt) => {
-			const related = evt.relatedTarget;
-			const win = this.host.ownerDocument.defaultView;
-			if (win !== null && related instanceof win.Element) {
-				if (related.closest("[data-path]") !== null) return;
-			}
-			this.callbacks.onHoverProject(null);
-		});
 	}
 }
 

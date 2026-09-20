@@ -1,4 +1,5 @@
 import {
+	isColorLike,
 	normalizeBoolean,
 	normalizeDate,
 	normalizeProgress,
@@ -20,7 +21,7 @@ const TYPE_PROJECT_VALUE = "project";
 export interface DataIssue {
 	/** 逻辑字段名（FieldMappingConfig 的键） */
 	field: string;
-	reason: "unknown-status" | "invalid-date";
+	reason: "unknown-status" | "invalid-date" | "invalid-color";
 	/** 用户写入的原始值（仅用于展示） */
 	raw: string;
 }
@@ -80,6 +81,14 @@ export function buildProjectItem(
 		issues,
 	);
 
+	// 颜色非法不静默忽略：写错值的人需要知道自己的条为什么没变色
+	const rawColor = normalizeOptionalString(fm[mapping.color]);
+	let color = rawColor;
+	if (rawColor !== null && !isColorLike(rawColor)) {
+		issues.push({ field: "color", reason: "invalid-color", raw: rawColor });
+		color = null;
+	}
+
 	const item: ProjectItem = {
 		status,
 		startDate,
@@ -93,6 +102,7 @@ export function buildProjectItem(
 		longTerm: normalizeBoolean(fm[mapping.longTerm]),
 		mainProject: normalizeBoolean(fm[mapping.mainProject]),
 		projectId: normalizeOptionalString(fm[mapping.projectId]),
+		color,
 		projectLeader: normalizeOptionalString(fm[mapping.projectLeader]),
 		projectMembers: normalizeStringArray(fm[mapping.projectMembers]),
 		tags,

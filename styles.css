@@ -26,8 +26,9 @@
 
 .pm-body {
 	display: flex;
-	flex: 1;
+	flex: 1 1 auto;
 	min-height: 0;
+	overflow: hidden;
 	gap: var(--size-4-2);
 }
 
@@ -36,20 +37,32 @@
 	max-width: 460px;
 	min-width: 240px;
 	overflow: auto;
+	/* 面板滚到底时不要把滚动接力给整页（否则会出现「整页顶出去」的错觉） */
+	overscroll-behavior: contain;
 	padding-right: var(--size-4-1);
 	border-right: 1px solid var(--background-modifier-border);
 }
 
 .pm-main {
-	flex: 1;
-	min-width: 0;
 	display: flex;
-}
-
-.pm-gantt-host {
-	flex: 1;
+	flex: 1 1 auto;
 	min-width: 0;
 	min-height: 0;
+	overflow: hidden;
+}
+
+/*
+ * 甘特区的定高：用 flex 撑满而不是 height: 100%。
+ * 百分比高度要求父元素有「明确高度」，在多层 flex 里这个前提随时可能被打破，
+ * 一旦退化成 auto，时间轴就不再滚动而是把整个面板顶出边界——这正是之前越界的原因。
+ */
+.pm-gantt-host {
+	display: flex;
+	flex-direction: column;
+	flex: 1 1 auto;
+	min-width: 0;
+	min-height: 0;
+	overflow: hidden;
 }
 
 .pm-body--collapsed .pm-side {
@@ -118,6 +131,197 @@
 .pm-btn--ghost:hover {
 	color: var(--text-normal);
 	background: var(--background-modifier-hover);
+}
+
+/* ───────────────────────────── Tab 栏 ───────────────────────────── */
+
+.pm-tabbar {
+	display: flex;
+	gap: var(--size-2-1);
+	margin-bottom: var(--size-4-2);
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.pm-tab {
+	padding: var(--size-2-2) var(--size-4-2);
+	border: none;
+	border-bottom: 2px solid transparent;
+	border-radius: 0;
+	background: transparent;
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	cursor: pointer;
+}
+
+.pm-tab:hover {
+	color: var(--text-normal);
+	background: var(--background-modifier-hover);
+}
+
+.pm-tab.is-active {
+	color: var(--text-normal);
+	border-bottom-color: var(--interactive-accent);
+	font-weight: var(--font-semibold);
+}
+
+.pm-tab:focus-visible {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: -2px;
+}
+
+/* ───────────────────────────── Mermaid 面板 ───────────────────────────── */
+
+.pm-mermaid-host {
+	display: flex;
+	flex-direction: column;
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow: hidden;
+}
+
+.pm-mermaid {
+	display: flex;
+	flex-direction: column;
+	flex: 1 1 auto;
+	min-height: 0;
+	gap: var(--size-4-2);
+}
+
+.pm-mermaid__options {
+	flex: 0 0 auto;
+	padding: var(--size-4-2);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	background: var(--background-secondary);
+}
+
+.pm-mermaid__options .setting-item {
+	border-top: none;
+	padding: var(--size-2-2) 0;
+}
+
+/* 预览与编辑栏并排；窄屏下（Obsidian 自身会给窄容器）由 flex-wrap 折成上下 */
+.pm-mermaid__panes {
+	display: flex;
+	flex-wrap: wrap;
+	flex: 1 1 auto;
+	min-height: 0;
+	gap: var(--size-4-2);
+}
+
+.pm-mermaid__pane {
+	display: flex;
+	flex-direction: column;
+	flex: 1 1 340px;
+	min-width: 0;
+	min-height: 0;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	background: var(--background-primary);
+	overflow: hidden;
+}
+
+.pm-pane-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--size-2-2);
+	padding: var(--size-2-2) var(--size-4-2);
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.pm-pane-title {
+	padding: var(--size-2-2) var(--size-4-2);
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
+.pm-pane-head .pm-pane-title {
+	padding: 0;
+}
+
+.pm-mermaid__dirty {
+	color: var(--color-orange);
+	font-size: var(--font-ui-smaller);
+}
+
+.pm-mermaid__preview {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow: auto;
+	overscroll-behavior: contain;
+	padding: var(--size-4-2);
+}
+
+.pm-mermaid__preview-empty,
+.pm-mermaid__preview-error {
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
+.pm-mermaid__preview-error {
+	color: var(--text-error);
+}
+
+.pm-mermaid__editor {
+	flex: 1 1 auto;
+	min-height: 140px;
+	width: 100%;
+	resize: none;
+	border: none;
+	border-radius: 0;
+	background: var(--background-primary);
+	color: var(--text-normal);
+	font-family: var(--font-monospace);
+	font-size: var(--font-ui-smaller);
+	overflow: auto;
+	overscroll-behavior: contain;
+}
+
+.pm-mermaid__editor:focus {
+	box-shadow: none;
+}
+
+.pm-mermaid__note {
+	flex: 0 0 auto;
+	color: var(--text-faint);
+	font-size: var(--font-ui-smaller);
+}
+
+/* ───────────────────────────── 拖动排序 ───────────────────────────── */
+
+.pm-drag-handle {
+	flex: 0 0 auto;
+	color: var(--text-faint);
+	cursor: grab;
+	user-select: none;
+	/* 触屏上必须吃掉手势，否则一按就开始滚动页面，拖不动 */
+	touch-action: none;
+	line-height: 1;
+}
+
+.pm-drag-handle:hover {
+	color: var(--text-normal);
+}
+
+/* 作用域限定在面板内：`is-dragging` 是通用类名，不能全局改写（agent.md §2.2） */
+.pm-group-panel .is-dragging {
+	opacity: 0.6;
+	box-shadow: 0 0 0 2px var(--interactive-accent);
+}
+
+.pm-group-panel.is-reordering {
+	cursor: grabbing;
+}
+
+/* 项目颜色小圆点（与甘特条同色，让「哪个项目是什么颜色」在面板上也看得见） */
+.pm-color-dot {
+	flex: 0 0 auto;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--pm-dot-color, var(--text-faint));
+	box-shadow: inset 0 0 0 1px var(--background-modifier-border);
 }
 
 /* ───────────────────────────── 筛选栏 ───────────────────────────── */
@@ -656,7 +860,7 @@
 	position: relative;
 	display: flex;
 	width: 100%;
-	height: 100%;
+	flex: 1 1 auto;
 	min-height: 0;
 	border: 1px solid var(--background-modifier-border);
 	border-radius: var(--radius-m);
@@ -805,6 +1009,8 @@
 	flex: 1;
 	min-width: 0;
 	overflow: auto;
+	/* 滚到头也不要把滚动接力给整页（Ctrl+滚轮 由插件处理，普通滚轮留在这里） */
+	overscroll-behavior: contain;
 }
 
 .pm-gantt__canvas {
@@ -868,8 +1074,13 @@
 	stroke-dasharray: 4 3;
 }
 
+/*
+ * 任务条配色：`--pm-bar-color` 是「这个项目自己的颜色」（由数据写入 CSS 变量），
+ * 没设时退回状态默认色。这样逐项目配色不必内联 style 写 fill，
+ * 状态色与主题关系仍全部留在样式表里。
+ */
 .pm-gantt__bar {
-	fill: var(--text-muted);
+	fill: var(--pm-bar-color, var(--text-muted));
 	cursor: pointer;
 }
 
@@ -889,32 +1100,32 @@
 }
 
 .pm-gantt__bar--active {
-	fill: var(--interactive-accent);
+	fill: var(--pm-bar-color, var(--interactive-accent));
 }
 
 .pm-gantt__bar--completed {
-	fill: var(--color-cyan);
+	fill: var(--pm-bar-color, var(--color-cyan));
 }
 
 .pm-gantt__bar--cancelled {
-	fill: var(--text-faint);
+	fill: var(--pm-bar-color, var(--text-faint));
 }
 
 .pm-gantt__bar--on-hold {
-	fill: var(--color-orange);
+	fill: var(--pm-bar-color, var(--color-orange));
 }
 
 .pm-gantt__bar--inbox,
 .pm-gantt__bar--draft {
-	fill: var(--color-blue);
+	fill: var(--pm-bar-color, var(--color-blue));
 }
 
 .pm-gantt__bar--archived {
-	fill: var(--color-purple);
+	fill: var(--pm-bar-color, var(--color-purple));
 }
 
 .pm-gantt__bar--unknown {
-	fill: var(--text-faint);
+	fill: var(--pm-bar-color, var(--text-faint));
 }
 
 .pm-gantt__bar--highlight {
@@ -980,6 +1191,14 @@
 	color: var(--text-muted);
 	font-size: var(--font-ui-smaller);
 	overflow-wrap: anywhere;
+}
+
+.pm-modal__hint--color {
+	margin: 0 0 var(--size-4-2) 0;
+}
+
+.pm-modal__hint--warning {
+	color: var(--text-warning, var(--text-error));
 }
 
 .pm-modal__error {

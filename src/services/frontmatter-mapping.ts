@@ -27,6 +27,8 @@ export interface EditorValues {
 	projectMembers: string[];
 	longTerm: boolean;
 	mainProject: boolean;
+	/** 甘特条自定义颜色（CSS 颜色值） */
+	color: string | null;
 }
 
 export function emptyEditorValues(): EditorValues {
@@ -43,6 +45,7 @@ export function emptyEditorValues(): EditorValues {
 		projectMembers: [],
 		longTerm: false,
 		mainProject: false,
+		color: null,
 	};
 }
 
@@ -61,6 +64,7 @@ export function editorValuesFromItem(item: ProjectItem): EditorValues {
 		projectMembers: [...item.projectMembers],
 		longTerm: item.longTerm,
 		mainProject: item.mainProject,
+		color: item.color,
 	};
 }
 
@@ -92,6 +96,7 @@ export function buildProjectPatch(
 			values.projectMembers.length > 0 ? values.projectMembers : null,
 		[mapping.longTerm]: values.longTerm,
 		[mapping.mainProject]: values.mainProject,
+		[mapping.color]: values.color,
 	};
 }
 

@@ -124,6 +124,7 @@ describe("索引条目 → 表单初值", () => {
 			projectMembers: ["A", "B"],
 			longTerm: true,
 			mainProject: true,
+			color: null,
 		});
 	});
 

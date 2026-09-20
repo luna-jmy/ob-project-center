@@ -70,6 +70,34 @@ describe("设置迁移 — 幂等与容错（SPEC §5.5/§8）", () => {
 		expect(migrateSettings({ defaultYearFilter: "bogus" }).defaultYearFilter).toBe("current");
 	});
 
+	it("ships safe defaults for the manual-order and mermaid-option fields", () => {
+		const migrated = migrateSettings(null);
+		expect(migrated.manualGroupOrder).toEqual({});
+		expect(migrated.manualProjectOrder).toEqual({});
+		expect(migrated.mermaidTodayMarker).toBe(true);
+		expect(migrated.mermaidExcludeWeekends).toBe(false);
+		expect(migrated.mermaidExcludeDates).toBe("");
+	});
+
+	it("cleans the manual-order records field by field", () => {
+		const migrated = migrateSettings({
+			manualGroupOrder: { folder: ["a", "b"], objective: "not-an-array", area: [] },
+			manualProjectOrder: { "folder::x": ["100 Projects/a.md"], broken: [1, 2] },
+		});
+		// 坏掉的那一项丢掉，不影响其他记录
+		expect(migrated.manualGroupOrder).toEqual({ folder: ["a", "b"] });
+		expect(migrated.manualProjectOrder).toEqual({ "folder::x": ["100 Projects/a.md"] });
+	});
+
+	it("keeps the mermaid option toggles as booleans and rejects junk", () => {
+		const migrated = migrateSettings({
+			mermaidTodayMarker: "yes",
+			mermaidExcludeWeekends: true,
+		});
+		expect(migrated.mermaidTodayMarker).toBe(true); // 非布尔 → 回默认
+		expect(migrated.mermaidExcludeWeekends).toBe(true);
+	});
+
 	it("dedupes scan folders and drops blank entries", () => {
 		const migrated = migrateSettings({ scanFolders: ["A", " A ", "", "B"] });
 		expect(migrated.scanFolders).toEqual(["A", "B"]);

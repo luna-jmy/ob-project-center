@@ -62,6 +62,13 @@ export interface GanttModelOptions {
 	 * 不靠两套逻辑「尽量保持一致」。省略时退回内置的 objective 分节。
 	 */
 	sections?: GroupSectionSpec[];
+	/**
+	 * 强制扩大的时间轴范围（来自筛选栏的日期区间）。
+	 * 选了「本月」时，即使项目只覆盖其中几天，时间轴也要铺满整个月——
+	 * 否则「筛选区间」和「看到的区间」对不上，恢复缩放也没有明确的落点。
+	 * 只取并集：项目范围超出它时以项目为准。
+	 */
+	axisRange?: { start: string; end: string };
 }
 
 /** 无日期的空模型（占位范围用 today..today，避免时间轴除零） */
@@ -121,6 +128,10 @@ export function buildGanttModel(
 	for (const row of model.rows) {
 		rangeStart = minIso(rangeStart, row.start);
 		rangeEnd = maxIso(rangeEnd, row.end);
+	}
+	if (options.axisRange !== undefined) {
+		rangeStart = minIso(rangeStart, options.axisRange.start);
+		rangeEnd = maxIso(rangeEnd, options.axisRange.end);
 	}
 	model.rangeStart = rangeStart ?? today;
 	model.rangeEnd = rangeEnd ?? today;

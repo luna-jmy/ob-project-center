@@ -376,12 +376,30 @@ export class ProjectMasterSettingTab extends PluginSettingTab {
 			});
 
 		new Setting(host)
+			.setName("手动排序记录")
+			.setDesc(
+				"面板上拖动分组/项目会记在这里（只有排序档为「手动排序」时生效）。项目改名或删除后可能残留无效项，可一键清空。",
+			)
+			.addButton((button) =>
+				button.setButtonText("清空").onClick(async () => {
+					await this.patch({ manualGroupOrder: {}, manualProjectOrder: {} });
+					new Notice("已清空手动排序记录");
+				}),
+			);
+
+		new Setting(host)
 			.setName("甘特图隐藏已取消项目")
 			.setDesc("现有脚本行为：cancelled 项目默认不上甘特图。")
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.hideCancelledInGantt).onChange(async (value) => {
 					await this.patch({ hideCancelledInGantt: value });
 				}),
+			);
+
+		new Setting(host)
+			.setName("Mermaid 导出选项")
+			.setDesc(
+				"「今天竖线」「排除周末」「排除日期」三个开关在视图右侧的 Mermaid 标签页里直接调，改完即时预览。",
 			);
 
 		new Setting(host)

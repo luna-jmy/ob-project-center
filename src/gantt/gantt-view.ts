@@ -12,11 +12,16 @@ import { TimeScale, buildTimeScale } from "./time-scale";
  * 与 SPEC §6.1「构建产物不得引入全局选择器污染」、§7「popout 窗口 DOM 必须归属正确 ownerDocument」
  * 两条一票否决条款冲突。SPEC §11 已预置该降级路径（D4 fallback 自绘）。
  *
+ * ── 事件模型：全部委托，监听器数量恒定 ──────────────────────────────
+ * 本节视图会随每次刷新整体重渲染。如果按元素注册监听器，刷新 N 次就会往
+ * Component 上挂 N 批（元素虽已脱离文档，却仍被 Component 的监听器表引用着，是真实泄漏）。
+ * 所以这里只在构造时向根容器与 ownerDocument 注册**一次**，之后靠 data-* 属性分发：
+ *   `data-open-path` 打开笔记 / `data-edit-path` 编辑 / `data-toggle-section` 折叠分节。
+ *
  * 冲突防护要点：
  * - 全部 DOM 挂在调用方给的 `pm-` 前缀根容器内，视觉样式只写进 styles.css；
- * - 图形几何用 SVG 属性（x/width/y/height）表达，而非内联 style——不产生 CSS 污染；
- * - 事件只在构造时注册一次（`Component.registerDomEvent` 自动随生命周期回收），
- *   重渲染只替换子节点，监听器数量恒定不增长；
+ * - 图形几何用 SVG 属性（x/width/y/height）表达；自定义颜色走 CSS 变量（`--pm-bar-color`），
+ *   不用内联样式直接写 fill，主题与状态色仍由样式表统一管；
  * - 一切 createElement 都走 `root.ownerDocument`，popout 窗口安全；
  * - 拖拽在移动端禁用（SPEC §7：移动端降级为 Modal 编辑）。
  */
@@ -32,9 +37,11 @@ const SECTION_HEIGHT = 26;
 /** 网格线/表头标签的降级阈值（极端范围 + 日刻度时避免一次插入上万节点） */
 const MAX_GRID_LINES = 1000;
 const MAX_HEADER_LABELS = 240;
+/** Ctrl+滚轮的累计阈值：触控板一次滑动会连发很多小 delta，攒够一格才走一档 */
+const WHEEL_STEP_THRESHOLD = 40;
 
 export interface GanttCallbacks {
-	/** 点击任务条 → 打开笔记（新 leaf，不抢占当前） */
+	/** 点击任务条 / 侧栏链接 → 打开笔记（新 leaf，不抢占当前） */
 	onOpenNote(path: string): void;
 	/** 请求编辑项目（右键 / 侧栏按钮 / 键盘 F2、ContextMenu） */
 	onEditProject(path: string): void;
@@ -44,6 +51,19 @@ export interface GanttCallbacks {
 	onHoverProject(path: string | null): void;
 	/** 点击甘特的分节头 → 折叠/展开（与左面板同步） */
 	onToggleSection(key: string): void;
+	/**
+	 * 时间粒度变化（Ctrl + 滚轮）。
+	 * @param direction +1 = 更细（月→周→日），-1 = 更粗
+	 * @param anchor 缩放锚点：渲染后把该日期固定回原来的屏幕 x 位置，
+	 *               否则缩放时视野会「跑掉」（用户正盯着的那天跳到别处）
+	 */
+	onZoom(direction: 1 | -1, anchor: ZoomAnchor | null): void;
+}
+
+/** 缩放锚点：某个日期 + 它在可视时间轴里距左边缘的像素偏移 */
+export interface ZoomAnchor {
+	iso: string;
+	offsetX: number;
 }
 
 type DragMode = "move" | "resize-start" | "resize-end";
@@ -94,6 +114,7 @@ export class GanttView {
 	 */
 	private suppressNextClick = false;
 	private highlightTimer: number | null = null;
+	private wheelAccumulator = 0;
 
 	constructor(
 		private readonly component: Component,
@@ -105,7 +126,12 @@ export class GanttView {
 
 	// ────────────────────────────── 渲染 ──────────────────────────────
 
-	render(model: GanttModel, zoom: ZoomMode, today: string): void {
+	/**
+	 * @param anchorIso 缩放锚点日期：渲染后把它固定回原来的屏幕 x 位置，
+	 *                  否则 Ctrl+滚轮 缩放时视野会「跑掉」（用户盯着的那天跳到别处）
+	 * @param anchorOffsetX 锚点原本距时间轴左边缘的像素偏移
+	 */
+	render(model: GanttModel, zoom: ZoomMode, today: string, anchor?: ZoomAnchor): void {
 		this.scale = buildTimeScale(model.rangeStart, model.rangeEnd, zoom, { today });
 		this.layout = buildLayout(model);
 
@@ -130,12 +156,21 @@ export class GanttView {
 		this.renderBody(canvas);
 
 		this.syncScroll();
+		if (anchor !== undefined && this.timelineEl !== null) {
+			this.timelineEl.scrollLeft = Math.max(
+				0,
+				this.scale.xForDate(anchor.iso) - anchor.offsetX,
+			);
+		}
 	}
 
 	/** 只建一次：滚动监听器挂在持久节点上，重渲染不会累积监听器 */
 	private ensureFrame(): void {
 		if (this.frameBuilt) return;
 		this.root.addClass("pm-gantt");
+		// tabindex=-1 + preventScroll：让根容器可以接收键盘（Ctrl+/- 走 dashboard 的 keydown），
+		// 又不因为获得焦点而把页面滚走
+		this.root.tabIndex = -1;
 
 		const sidebar = this.root.createDiv({ cls: "pm-gantt__sidebar" });
 		this.sidebarHeadEl = sidebar.createDiv({ cls: "pm-gantt__sidebar-head" });
@@ -161,19 +196,17 @@ export class GanttView {
 			rowEl.dataset.path = row.item.file.path;
 
 			const nameEl = rowEl.createDiv({ cls: "pm-gantt__sidebar-name" });
+			// data-open-path 由根容器的委托 click 处理（不再逐元素注册监听器）
 			const link = nameEl.createEl("a", {
 				cls: "internal-link",
 				text: row.item.file.name,
 				href: row.item.file.path,
 			});
-			this.component.registerDomEvent(link, "click", (evt) => {
-				evt.preventDefault();
-				this.callbacks.onOpenNote(row.item.file.path);
-			});
-			this.component.registerDomEvent(link, "contextmenu", (evt) => {
-				evt.preventDefault();
-				this.callbacks.onEditProject(row.item.file.path);
-			});
+			link.dataset.openPath = row.item.file.path;
+			if (row.item.color !== null) {
+				const swatch = nameEl.createSpan({ cls: "pm-color-dot" });
+				swatch.style.setProperty("--pm-dot-color", row.item.color);
+			}
 
 			const meta = rowEl.createDiv({ cls: "pm-gantt__sidebar-meta" });
 			if (row.startFallback || row.endFallback) {
@@ -191,11 +224,7 @@ export class GanttView {
 				text: "编辑",
 				attr: { type: "button", "aria-label": `编辑项目 ${row.item.file.name}` },
 			});
-			this.component.registerDomEvent(editBtn, "click", (evt) => {
-				evt.preventDefault();
-				evt.stopPropagation();
-				this.callbacks.onEditProject(row.item.file.path);
-			});
+			editBtn.dataset.editPath = row.item.file.path;
 		}
 	}
 
@@ -205,13 +234,10 @@ export class GanttView {
 			cls: `pm-gantt__sidebar-section${entry.collapsed ? " is-collapsed" : ""}`,
 			attr: { type: "button", "aria-expanded": String(!entry.collapsed) },
 		});
+		header.dataset.toggleSection = entry.sectionKey;
 		// pm-chevron 与分组面板的分组头共用同一份样式，保证两侧箭头观感一致
 		header.createSpan({ cls: "pm-chevron", text: entry.collapsed ? "▸" : "▾" });
 		header.createSpan({ cls: "pm-gantt__sidebar-section-name", text: entry.sectionName });
-		this.component.registerDomEvent(header, "click", (evt) => {
-			evt.preventDefault();
-			this.callbacks.onToggleSection(entry.sectionKey);
-		});
 	}
 
 	private renderHeader(host: HTMLElement): void {
@@ -303,6 +329,11 @@ export class GanttView {
 		if (row.startFallback || row.endFallback) {
 			bar.dataset.fallback = "true";
 		}
+		// 自定义颜色走 CSS 变量：样式表里写 fill: var(--pm-bar-color, <状态默认色>)，
+		// 这样状态色与主题仍归样式表管，只有「这个项目自己的颜色」是数据
+		if (row.item.color !== null) {
+			bar.style.setProperty("--pm-bar-color", row.item.color);
+		}
 
 		const title = this.svg("title");
 		title.textContent = `${row.item.file.name}\n${row.start} → ${row.end}`;
@@ -346,7 +377,7 @@ export class GanttView {
 	// ────────────────────────────── 交互 ──────────────────────────────
 
 	/**
-	 * 监听器只注册这一次。
+	 * 监听器只注册这一次，之后全靠 data-* 委托分发。
 	 * pointermove/pointerup 挂在视图所属文档上：拖到视图外也能收到，靠 drag 状态短路。
 	 */
 	private registerInteraction(): void {
@@ -354,6 +385,9 @@ export class GanttView {
 		this.component.registerDomEvent(this.root, "click", (evt) => this.onClick(evt));
 		this.component.registerDomEvent(this.root, "contextmenu", (evt) => this.onContextMenu(evt));
 		this.component.registerDomEvent(this.root, "keydown", (evt) => this.onKeyDown(evt));
+		this.component.registerDomEvent(this.root, "wheel", (evt) => this.onWheel(evt), {
+			passive: false,
+		});
 		// 悬停联动：用 pointerover/out（会冒泡），一次委托搞定所有条与侧栏行
 		this.component.registerDomEvent(this.root, "pointerover", (evt) => {
 			this.callbacks.onHoverProject(this.linkedPathOf(evt.target));
@@ -371,60 +405,99 @@ export class GanttView {
 		this.component.registerDomEvent(doc, "pointercancel", () => this.cancelDrag());
 	}
 
-	/** 指针所在位置对应的联动目标（任务条或侧栏行） */
-	private linkedPathOf(target: EventTarget | null): string | null {
+	/** 把事件目标收窄成元素（跨窗口安全：用根容器所属窗口的构造器判断） */
+	private elementOf(target: EventTarget | null): Element | null {
 		const win = this.root.ownerDocument.defaultView;
 		if (win === null || !(target instanceof win.Element)) return null;
-		const bar = target.closest(".pm-gantt__bar");
+		return target;
+	}
+
+	/** 指针所在位置对应的联动目标（任务条或侧栏行） */
+	private linkedPathOf(target: EventTarget | null): string | null {
+		const el = this.elementOf(target);
+		if (el === null) return null;
+		const bar = el.closest(".pm-gantt__bar");
 		if (bar !== null) return bar.getAttribute("data-path");
-		const row = target.closest(".pm-gantt__sidebar-row");
+		const row = el.closest(".pm-gantt__sidebar-row");
 		return row !== null ? row.getAttribute("data-path") : null;
 	}
 
 	/**
+	 * Ctrl/Cmd + 滚轮 = 缩放时间粒度（用户要求 2026-09-20）。
+	 * 普通滚轮保持原有的横向/纵向滚动——这也是用户明确要的「避免冲突」。
+	 */
+	private onWheel(evt: WheelEvent): void {
+		if (!evt.ctrlKey && !evt.metaKey) return;
+		// 必须拦掉默认行为：Electron 里 Ctrl+滚轮是整页缩放，不拦就会连界面一起放大
+		evt.preventDefault();
+		evt.stopPropagation();
+
+		this.wheelAccumulator += evt.deltaY;
+		if (Math.abs(this.wheelAccumulator) < WHEEL_STEP_THRESHOLD) return;
+		const direction: 1 | -1 = this.wheelAccumulator < 0 ? 1 : -1;
+		this.wheelAccumulator = 0;
+		this.callbacks.onZoom(direction, this.anchorAtClientX(evt.clientX));
+	}
+
+	/**
+	 * 键盘缩放（Ctrl +/-）没有指针位置，就以可视区中心为锚点——
+	 * 否则缩放后视野会从当前关注的位置跳走。
+	 */
+	centerAnchor(): ZoomAnchor | null {
+		const timeline = this.timelineEl;
+		if (timeline === null) return null;
+		const bounds = timeline.getBoundingClientRect();
+		return this.anchorAtClientX(bounds.left + timeline.clientWidth / 2);
+	}
+
+	private anchorAtClientX(clientX: number): ZoomAnchor | null {
+		const scale = this.scale;
+		const timeline = this.timelineEl;
+		if (scale === null || timeline === null) return null;
+		const offsetX = clientX - timeline.getBoundingClientRect().left;
+		return { iso: scale.dateForX(offsetX + timeline.scrollLeft), offsetX };
+	}
+
+	/**
 	 * 外部（左侧分组卡片）悬停时调用：只做临时高亮，不滚动。
-	 * 与 `scrollToProject()` 的定时闪烁是两套视觉：一个是「我在这」，一个是「你指的那个在这」。
+	 * 与 `scrollToProject()` 的定时闪烁是两套视觉：一个是「你指的那个在这」，一个是「我在这」。
 	 */
 	setLinkedProject(path: string | null): void {
 		this.root.querySelectorAll(".is-linked").forEach((el) => el.classList.remove("is-linked"));
 		if (path === null) return;
-		const bar = this.findBar(path);
-		bar?.classList.add("is-linked");
-		const row = this.sidebarBodyEl?.querySelector(
-			`.pm-gantt__sidebar-row[data-path="${cssAttrEscape(path)}"]`,
-		);
-		row?.classList.add("is-linked");
+		this.findBar(path)?.classList.add("is-linked");
+		this.sidebarBodyEl
+			?.querySelector(`.pm-gantt__sidebar-row[data-path="${cssAttrEscape(path)}"]`)
+			?.classList.add("is-linked");
 	}
 
-	/** 目标元素 → 任务条（跨窗口安全：用根容器所属窗口的构造器判断） */
 	private barOf(target: EventTarget | null): SVGRectElement | null {
-		const win = this.root.ownerDocument.defaultView;
-		if (win === null) return null;
-		if (!(target instanceof win.SVGElement)) return null;
-		if (!target.classList.contains("pm-gantt__bar")) return null;
-		return target as SVGRectElement;
+		const el = this.elementOf(target);
+		if (el === null || !el.classList.contains("pm-gantt__bar")) return null;
+		return el as SVGRectElement;
 	}
 
 	private onPointerDown(evt: PointerEvent): void {
+		// 让根容器拿到焦点，Ctrl+/- 才能被 dashboard 的 keydown 收到（preventScroll 防止跳屏）
+		this.root.focus({ preventScroll: true });
 		if (Platform.isMobile) return; // SPEC §7：移动端不做拖拽
-		const win = this.root.ownerDocument.defaultView;
-		if (win === null || !(evt.target instanceof win.SVGElement)) return;
 
-		const target = evt.target;
-		const isHandle = target.classList.contains("pm-gantt__handle");
-		const isBar = target.classList.contains("pm-gantt__bar");
+		const el = this.elementOf(evt.target);
+		if (el === null) return;
+		const isHandle = el.classList.contains("pm-gantt__handle");
+		const isBar = el.classList.contains("pm-gantt__bar");
 		if (!isHandle && !isBar) return;
 
-		const path = target.dataset.path;
+		const path = (el as SVGElement).dataset.path;
 		if (path === undefined) return;
 		const row = this.findRow(path);
 		if (row === null) return;
 
-		const bar = isBar ? (target as SVGRectElement) : this.findBar(path);
+		const bar = isBar ? (el as SVGRectElement) : this.findBar(path);
 		if (bar === null) return;
 
 		const mode: DragMode = isHandle
-			? target.dataset.handle === "start"
+			? (el as SVGElement).dataset.handle === "start"
 				? "resize-start"
 				: "resize-end"
 			: "move";
@@ -502,24 +575,49 @@ export class GanttView {
 		);
 	}
 
+	/** 委托 click：折叠分节 → 编辑 → 打开 → 任务条 */
 	private onClick(evt: MouseEvent): void {
-		if (this.drag !== null) return; // 拖拽进行中的 click 不触发跳转
+		if (this.drag !== null) return; // 拖拽进行中的 click 不处理
 		if (this.suppressNextClick) {
 			this.suppressNextClick = false;
 			return;
 		}
+		const el = this.elementOf(evt.target);
+		if (el === null) return;
+
+		const toggleKey = el.closest("[data-toggle-section]")?.getAttribute("data-toggle-section");
+		if (toggleKey !== null && toggleKey !== undefined) {
+			evt.preventDefault();
+			this.callbacks.onToggleSection(toggleKey);
+			return;
+		}
+		const editPath = el.closest("[data-edit-path]")?.getAttribute("data-edit-path");
+		if (editPath !== null && editPath !== undefined) {
+			evt.preventDefault();
+			this.callbacks.onEditProject(editPath);
+			return;
+		}
+		const openPath = el.closest("[data-open-path]")?.getAttribute("data-open-path");
+		if (openPath !== null && openPath !== undefined) {
+			evt.preventDefault();
+			this.callbacks.onOpenNote(openPath);
+			return;
+		}
 		const bar = this.barOf(evt.target);
-		if (bar === null) return;
-		const path = bar.dataset.path;
-		if (path === undefined) return;
-		evt.preventDefault();
-		this.callbacks.onOpenNote(path);
+		if (bar !== null && bar.dataset.path !== undefined) {
+			evt.preventDefault();
+			this.callbacks.onOpenNote(bar.dataset.path);
+		}
 	}
 
+	/** 委托右键：任务条与侧栏项目行都进编辑（右键 = 编辑是既有交互约定） */
 	private onContextMenu(evt: MouseEvent): void {
-		const bar = this.barOf(evt.target);
-		if (bar === null) return;
-		const path = bar.dataset.path;
+		const el = this.elementOf(evt.target);
+		if (el === null) return;
+		const path =
+			this.barOf(evt.target)?.dataset.path ??
+			el.closest(".pm-gantt__sidebar-row")?.getAttribute("data-path") ??
+			undefined;
 		if (path === undefined) return;
 		evt.preventDefault();
 		this.callbacks.onEditProject(path);
@@ -572,6 +670,12 @@ export class GanttView {
 		this.syncScroll();
 		this.highlight(path);
 		return true;
+	}
+
+	/** 滚动到时间轴起点（恢复缩放时用，避免留在放大后的错误位置） */
+	scrollToStart(): void {
+		if (this.timelineEl === null) return;
+		this.timelineEl.scrollLeft = 0;
 	}
 
 	private highlight(path: string): void {

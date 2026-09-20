@@ -22,6 +22,7 @@ export function projectItem(
 		longTerm: false,
 		mainProject: false,
 		projectId: null,
+		color: null,
 		projectLeader: null,
 		projectMembers: [],
 		tags: [],

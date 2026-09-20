@@ -69,6 +69,22 @@ export function statusAliasMap(value: unknown): Record<string, ProjectStatus> | 
 	return out;
 }
 
+/**
+ * 「字符串 → 字符串数组」映射清洗（手动排序用）。
+ * 逐项降级：坏掉的那一项丢掉，不影响其他分组的手动顺序。
+ */
+function pathListMap(value: unknown): Record<string, string[]> {
+	if (!isRecord(value)) return {};
+	const out: Record<string, string[]> = {};
+	for (const [key, raw] of Object.entries(value)) {
+		if (key.trim().length === 0) continue;
+		const list = stringArray(raw);
+		if (list === null || list.length === 0) continue;
+		out[key] = list;
+	}
+	return out;
+}
+
 /** 只保留字符串值成员的映射表（设置页导入复用） */
 export function stringMap(value: unknown): Record<string, string> | null {
 	if (!isRecord(value)) return null;
@@ -158,6 +174,18 @@ export function migrateSettings(raw: unknown): ProjectMasterSettings {
 			DEFAULT_SETTINGS.materialsFolderName,
 		),
 		mermaidTitle: nonEmptyString(source.mermaidTitle, DEFAULT_SETTINGS.mermaidTitle),
+		mermaidTodayMarker:
+			typeof source.mermaidTodayMarker === "boolean"
+				? source.mermaidTodayMarker
+				: DEFAULT_SETTINGS.mermaidTodayMarker,
+		mermaidExcludeWeekends:
+			typeof source.mermaidExcludeWeekends === "boolean"
+				? source.mermaidExcludeWeekends
+				: DEFAULT_SETTINGS.mermaidExcludeWeekends,
+		mermaidExcludeDates:
+			typeof source.mermaidExcludeDates === "string" ? source.mermaidExcludeDates : "",
+		manualGroupOrder: pathListMap(source.manualGroupOrder),
+		manualProjectOrder: pathListMap(source.manualProjectOrder),
 		mermaidSectionFallback: nonEmptyString(
 			source.mermaidSectionFallback,
 			DEFAULT_SETTINGS.mermaidSectionFallback,

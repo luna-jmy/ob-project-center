@@ -1,4 +1,5 @@
-import { App, Modal, Setting } from "obsidian";
+import { App, ColorComponent, Modal, Setting, TextComponent } from "obsidian";
+import { isColorLike } from "../services/normalize";
 import {
 	EditorValues,
 	editorValuesFromItem,
@@ -45,6 +46,9 @@ export class ProjectEditorModal extends Modal {
 	private values: EditorValues;
 	private confirmingClear = false;
 	private saving = false;
+	private colorText: TextComponent | null = null;
+	private colorPicker: ColorComponent | null = null;
+	private colorHintEl: HTMLElement | null = null;
 
 	constructor(
 		app: App,
@@ -154,10 +158,12 @@ export class ProjectEditorModal extends Modal {
 				});
 			});
 
+		this.renderColorSetting(contentEl);
+
 		// 物理字段名只在这里作为「提示」出现，方便用户对照模板自查
 		contentEl.createDiv({
 			cls: "pm-modal__hint",
-			text: `写回字段：${mapping.status} / ${mapping.priority} / ${mapping.startDate} / ${mapping.dueDate} / ${mapping.area} …（可在设置中重映射）`,
+			text: `写回字段：${mapping.status} / ${mapping.priority} / ${mapping.startDate} / ${mapping.dueDate} / ${mapping.area} / ${mapping.color} …（可在设置中重映射）`,
 		});
 
 		this.renderActions(contentEl);
@@ -231,6 +237,59 @@ export class ProjectEditorModal extends Modal {
 		this.deps.onDone();
 	}
 
+	/**
+	 * 甘特条颜色：文本框（吃任意 CSS 颜色，含 var(--x) 跟随主题）+ 取色器（只出 hex）。
+	 * 两者互相同步；无法识别的写法**不拦**，只在下面提示一句——
+	 * 真正卡住渲染的判定统一由 normalize 层负责，并在「数据问题」区回报。
+	 */
+	private renderColorSetting(host: HTMLElement): void {
+		const setting = new Setting(host)
+			.setName("甘特条颜色")
+			.setDesc("可填 #ff8800、var(--color-blue)、颜色名。留空则按项目状态用默认色。");
+
+		setting.addText((text) => {
+			this.colorText = text;
+			text.setPlaceholder("默认（按状态）");
+			text.setValue(this.values.color ?? "");
+			text.onChange((value) => {
+				const trimmed = value.trim();
+				this.values.color = trimmed.length === 0 ? null : trimmed;
+				if (trimmed.startsWith("#")) this.colorPicker?.setValue(trimmed);
+				this.updateColorHint();
+			});
+		});
+
+		setting.addColorPicker((picker) => {
+			this.colorPicker = picker;
+			picker.setValue(toHexOrNeutral(this.values.color));
+			picker.onChange((value) => {
+				this.values.color = value;
+				this.colorText?.setValue(value);
+				this.updateColorHint();
+			});
+		});
+
+		this.colorHintEl = host.createDiv({ cls: "pm-modal__hint pm-modal__hint--color" });
+		this.updateColorHint();
+	}
+
+	private updateColorHint(): void {
+		const hint = this.colorHintEl;
+		if (hint === null) return;
+		const color = this.values.color;
+		if (color !== null && !isColorLike(color)) {
+			hint.setText(`⚠️「${color}」不是可识别的颜色，甘特图会退回默认色。`);
+			hint.addClass("pm-modal__hint--warning");
+			return;
+		}
+		hint.removeClass("pm-modal__hint--warning");
+		hint.setText(
+			color === null
+				? ""
+				: "Mermaid 导出不支持逐任务配色，该颜色只影响自绘甘特图。",
+		);
+	}
+
 	private addDateSetting(
 		host: HTMLElement,
 		name: string,
@@ -286,4 +345,9 @@ export class ProjectEditorModal extends Modal {
 	onClose(): void {
 		this.contentEl.empty();
 	}
+}
+
+/** 取色器只吃 hex：非 hex 的颜色（var()、颜色名）用一个中性色作为起点 */
+function toHexOrNeutral(color: string | null): string {
+	return color !== null && /^#[0-9a-f]{6}$/i.test(color) ? color : "#888888";
 }

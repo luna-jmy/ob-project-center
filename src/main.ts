@@ -68,6 +68,24 @@ export default class ProjectMasterPlugin extends Plugin implements DashboardHost
 			},
 		});
 
+		// 时间粒度的命令入口：**不注册默认快捷键**（技能要求），
+		// 用户在「设置 → 快捷键」里自己绑；视图内也支持 Ctrl +/- 与 Ctrl+滚轮。
+		this.addCommand({
+			id: "timeline-zoom-in",
+			name: "Timeline: zoom in (finer)",
+			callback: () => this.forEachDashboard((view) => view.zoomInCommand()),
+		});
+		this.addCommand({
+			id: "timeline-zoom-out",
+			name: "Timeline: zoom out (coarser)",
+			callback: () => this.forEachDashboard((view) => view.zoomOutCommand()),
+		});
+		this.addCommand({
+			id: "timeline-zoom-reset",
+			name: "Timeline: reset zoom",
+			callback: () => this.forEachDashboard((view) => view.resetZoom()),
+		});
+
 		this.addSettingTab(new ProjectMasterSettingTab(this.app, this));
 
 		this.registerIndexEvents();
@@ -237,15 +255,24 @@ export default class ProjectMasterPlugin extends Plugin implements DashboardHost
 		return map;
 	}
 
+	/** 只落盘设置（手动排序、导出选项这类不影响索引的改动走它，省掉一次全库重扫） */
+	async persistSettings(): Promise<void> {
+		await this.saveSettings();
+	}
+
 	/**
 	 * 刷新所有已打开的 dashboard 视图。
 	 * 用 `getLeavesOfType` 现场取，不保存全局 view 实例（技能：视图由工厂创建）。
 	 */
 	requestRefresh(): void {
+		this.forEachDashboard((view) => view.refresh());
+	}
+
+	private forEachDashboard(action: (view: DashboardView) => void): void {
 		for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_PM_DASHBOARD)) {
 			const view = leaf.view;
 			if (view instanceof DashboardView) {
-				view.refresh();
+				action(view);
 			}
 		}
 	}

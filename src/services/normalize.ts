@@ -129,6 +129,30 @@ function clamp(value: number): number {
 	return Math.min(100, Math.max(0, value));
 }
 
+/**
+ * CSS 颜色白名单校验（甘特条自定义颜色用）。
+ *
+ * 为什么不用浏览器解析：这里跑在纯逻辑层（零 DOM、可单测）。
+ * 非法颜色不会执行代码，但会让任务条静默退回默认色——属于最难排查的那种失效，
+ * 所以宁可在这里挡下来并回报给用户，也不放任它进渲染层。
+ */
+const COLOR_PATTERNS: readonly RegExp[] = [
+	// 只认 CSS 真正合法的四位长度：3 / 4 / 6 / 8。
+	// 写成 {3,8} 会把 5 位、7 位的无效 hex 也放过去，浏览器却整条丢弃
+	/^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i,
+	/^rgba?\(\s*[\d.%,\s/]+\)$/i, // rgb() / rgba()
+	/^hsla?\(\s*[\d.%,\s/deg]+\)$/i, // hsl() / hsla()
+	/^var\(--[a-z0-9-_]+\)$/i, // var(--color-red)：跟随主题
+	/^[a-z]{3,20}$/i, // 具名颜色 red / transparent
+];
+
+export function isColorLike(raw: unknown): boolean {
+	if (typeof raw !== "string") return false;
+	const value = raw.trim();
+	if (value.length === 0) return false;
+	return COLOR_PATTERNS.some((pattern) => pattern.test(value));
+}
+
 /** 布尔规范化：真布尔 / 常见字符串拼写；缺失为 false（对齐模板 long-term: false 现状）。 */
 export function normalizeBoolean(raw: unknown): boolean {
 	if (typeof raw === "boolean") return raw;

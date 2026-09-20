@@ -261,6 +261,8 @@ export class FilterBar {
 			["due-asc", "截止日 ↑"],
 			["name", "项目名"],
 			["priority", "优先级"],
+			// 拖过分组/项目后会自动切到这一档；想回到自动排序就从这里选别的
+			["manual", "手动排序"],
 		] as [SortMode, string][]) {
 			select.createEl("option", { value, text: label });
 		}

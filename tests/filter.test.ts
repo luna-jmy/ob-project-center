@@ -29,6 +29,7 @@ function item(overrides: Partial<ProjectItem> & { name: string }): ProjectItem {
 		longTerm: false,
 		mainProject: false,
 		projectId: null,
+		color: null,
 		projectLeader: null,
 		projectMembers: [],
 		tags: [],
