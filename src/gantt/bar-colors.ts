@@ -13,7 +13,8 @@
  * 预设值一旦写错，用户看到的是「点了色块但条子没变色」，很难排查。
  */
 
-import { PRIORITY_LABELS, ProjectStatus } from "../types";
+import { t } from "../i18n";
+import { priorityLabel, ProjectStatus } from "../types";
 
 export interface BarColorPreset {
 	/** 写进 frontmatter 的值；`null` = 不指定，按项目状态用默认色 */
@@ -21,17 +22,23 @@ export interface BarColorPreset {
 	label: string;
 }
 
-export const BAR_COLOR_PRESETS: readonly BarColorPreset[] = [
-	{ value: null, label: "默认（按状态）" },
-	{ value: "var(--color-red)", label: "红" },
-	{ value: "var(--color-orange)", label: "橙" },
-	{ value: "var(--color-yellow)", label: "黄" },
-	{ value: "var(--color-green)", label: "绿" },
-	{ value: "var(--color-cyan)", label: "青" },
-	{ value: "var(--color-blue)", label: "蓝" },
-	{ value: "var(--color-purple)", label: "紫" },
-	{ value: "var(--color-pink)", label: "粉" },
-];
+/**
+ * 预设色块。写成函数而不是模块级常量：文案要按当前语言求值，
+ * 常量映射会在 import 时把语言冻住（理由同 src/i18n/index.ts）。
+ */
+export function barColorPresets(): readonly BarColorPreset[] {
+	return [
+	{ value: null, label: t("默认（按状态）") },
+	{ value: "var(--color-red)", label: t("红") },
+	{ value: "var(--color-orange)", label: t("橙") },
+	{ value: "var(--color-yellow)", label: t("黄") },
+	{ value: "var(--color-green)", label: t("绿") },
+	{ value: "var(--color-cyan)", label: t("青") },
+	{ value: "var(--color-blue)", label: t("蓝") },
+	{ value: "var(--color-purple)", label: t("紫") },
+	{ value: "var(--color-pink)", label: t("粉") },
+	];
+}
 
 /** 取色器（`<input type="color">`）只认 `#rrggbb`，其余写法都只能走文本框 */
 export function isHexColor(value: string): boolean {
@@ -53,7 +60,7 @@ const CRITICAL_PRIORITIES = ["1", "2"] as const;
  */
 const CRITICAL_VALUES = new Set<string>([
 	...CRITICAL_PRIORITIES,
-	...CRITICAL_PRIORITIES.map((value) => PRIORITY_LABELS[value] ?? value),
+	...CRITICAL_PRIORITIES.map((value) => priorityLabel(value)),
 ]);
 
 /**

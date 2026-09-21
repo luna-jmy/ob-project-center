@@ -1,9 +1,10 @@
 import { Component, Menu, Platform } from "obsidian";
+import { t } from "../i18n";
 import { mergeContiguousDays } from "../services/holiday-schedule";
 import { GanttBarColors, ZoomMode } from "../types";
 import { addDaysIso } from "../utils/date";
 import {
-	BAR_COLOR_PRESETS,
+	barColorPresets,
 	BarColorPreset,
 	barFillKey,
 	isCriticalPriority,
@@ -214,7 +215,7 @@ export class GanttView {
 		if (model.rows.length === 0) {
 			canvas.createDiv({
 				cls: "pm-gantt__empty",
-				text: "没有可显示的项目（可能被状态/领域/日期筛选或年度过滤挡掉了）",
+				text: t("没有可显示的项目（可能被状态/领域/日期筛选或年度过滤挡掉了）"),
 			});
 		}
 
@@ -265,7 +266,11 @@ export class GanttView {
 			rowEl.createSpan({
 				cls: "pm-drag-handle",
 				text: "⠿",
-				attr: { "data-drag-handle": "row", "aria-hidden": "true", title: "拖动调整项目顺序" },
+				attr: {
+					"data-drag-handle": "row",
+					"aria-hidden": "true",
+					title: t("拖动调整项目顺序"),
+				},
 			});
 
 			const nameEl = rowEl.createDiv({ cls: "pm-gantt__sidebar-name" });
@@ -286,16 +291,16 @@ export class GanttView {
 			if (row.startFallback || row.endFallback) {
 				meta.createSpan({
 					cls: "pm-gantt__fallback-hint",
-					text: "缺日期",
+					text: t("缺日期"),
 					attr: {
-						title: "该项目起止日期不完整，甘特图上为推导值；请编辑补全真实日期",
+						title: t("该项目起止日期不完整，甘特图上为推导值；请编辑补全真实日期"),
 					},
 				});
 			}
 			// 不依赖右键的等价编辑入口（技能可访问性要求）
 			const editBtn = meta.createEl("button", {
 				cls: "pm-gantt__edit-btn",
-				text: "编辑",
+				text: t("编辑"),
 				attr: { type: "button", "aria-label": `编辑项目 ${row.item.file.name}` },
 			});
 			editBtn.dataset.editPath = row.item.file.path;
@@ -313,7 +318,11 @@ export class GanttView {
 		header.createSpan({
 			cls: "pm-drag-handle",
 			text: "⠿",
-			attr: { "data-drag-handle": "section", "aria-hidden": "true", title: "拖动调整分节顺序" },
+			attr: {
+				"data-drag-handle": "section",
+				"aria-hidden": "true",
+				title: t("拖动调整分节顺序"),
+			},
 		});
 		// pm-chevron 与分组面板的分组头共用同一份样式，保证两侧箭头观感一致
 		header.createSpan({ cls: "pm-chevron", text: entry.collapsed ? "▸" : "▾" });
@@ -969,7 +978,7 @@ export class GanttView {
 		const menu = new Menu();
 
 		menu.addItem((item) => item.setTitle("甘特条颜色").setIsLabel(true));
-		for (const preset of BAR_COLOR_PRESETS) {
+		for (const preset of barColorPresets()) {
 			menu.addItem((item) => {
 				item.setTitle(this.colorMenuLabel(doc, preset));
 				item.setChecked(preset.value === current);

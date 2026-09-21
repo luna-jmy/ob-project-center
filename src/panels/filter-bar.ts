@@ -1,11 +1,12 @@
 import { Component } from "obsidian";
+import { t } from "../i18n";
 import {
 	AreaMode,
 	DateRangePreset,
 	DateRangeState,
 	FilterState,
 	StatusPreset,
-	STATUS_PRESET_LABELS,
+	statusPresetLabel,
 	detectStatusPreset,
 	hasActiveFilter,
 	presetToStatuses,
@@ -16,7 +17,7 @@ import {
 	PROJECT_STATUSES,
 	ProjectMasterSettings,
 	ProjectStatus,
-	STATUS_LABELS,
+	statusLabel,
 	SortMode,
 } from "../types";
 import { todayIso } from "../utils/date";
@@ -110,14 +111,14 @@ export class FilterBar {
 
 	private buildStatusGroup(): void {
 		const group = this.host.createDiv({ cls: "pm-filter-group pm-filter-group--status" });
-		group.createEl("label", { cls: "pm-filter-label", text: "状态" });
+		group.createEl("label", { cls: "pm-filter-label", text: t("状态") });
 
 		const presetSelect = group.createEl("select", { cls: "dropdown pm-filter-select" });
 		this.presetSelect = presetSelect;
 		// 文案写成「隐藏已完成/取消/归档」：默认档还会隐藏取消与归档，
 		// 只写「隐藏已完成」的话，用户改完状态找不到项目时联想不到是它（2026-09-21 报的 bug）
 		for (const value of ["hide-completed", "completed-only", "all"] as StatusPreset[]) {
-			presetSelect.createEl("option", { value, text: STATUS_PRESET_LABELS[value] });
+			presetSelect.createEl("option", { value, text: statusPresetLabel(value) });
 		}
 		this.component.registerDomEvent(presetSelect, "change", () => {
 			this.deps.setStatuses(presetToStatuses(presetSelect.value as StatusPreset));
@@ -128,7 +129,7 @@ export class FilterBar {
 
 	private buildAreaGroup(): void {
 		const group = this.host.createDiv({ cls: "pm-filter-group pm-filter-group--area" });
-		group.createEl("label", { cls: "pm-filter-label", text: "领域" });
+		group.createEl("label", { cls: "pm-filter-label", text: t("领域") });
 
 		const modeSelect = group.createEl("select", { cls: "dropdown pm-filter-select" });
 		this.areaModeSelect = modeSelect;
@@ -148,7 +149,7 @@ export class FilterBar {
 
 	private buildSearchGroup(): void {
 		const group = this.host.createDiv({ cls: "pm-filter-group pm-filter-group--search" });
-		group.createEl("label", { cls: "pm-filter-label", text: "搜索" });
+		group.createEl("label", { cls: "pm-filter-label", text: t("搜索") });
 		const input = group.createEl("input", {
 			cls: "pm-filter-input",
 			attr: { type: "search", placeholder: "项目名关键字" },
@@ -174,7 +175,7 @@ export class FilterBar {
 	 */
 	private buildDateGroup(): void {
 		const group = this.host.createDiv({ cls: "pm-filter-group pm-filter-group--date" });
-		group.createEl("label", { cls: "pm-filter-label", text: "日期" });
+		group.createEl("label", { cls: "pm-filter-label", text: t("日期") });
 
 		const select = group.createEl("select", { cls: "dropdown pm-filter-select" });
 		this.dateSelect = select;
@@ -225,17 +226,17 @@ export class FilterBar {
 	/** 年度快捷筛选：按项目开始年度 / 结束年度各一个下拉，选项由数据驱动 */
 	private buildYearGroup(): void {
 		const group = this.host.createDiv({ cls: "pm-filter-group pm-filter-group--year" });
-		group.createEl("label", { cls: "pm-filter-label", text: "年度" });
+		group.createEl("label", { cls: "pm-filter-label", text: t("年度") });
 
 		const startWrap = group.createDiv({ cls: "pm-year-picker" });
-		startWrap.createSpan({ cls: "pm-year-picker__label", text: "开始" });
+		startWrap.createSpan({ cls: "pm-year-picker__label", text: t("开始") });
 		this.startYearSelect = startWrap.createEl("select", {
 			cls: "dropdown pm-filter-select",
 			attr: { "aria-label": "按项目开始年度筛选" },
 		});
 
 		const endWrap = group.createDiv({ cls: "pm-year-picker" });
-		endWrap.createSpan({ cls: "pm-year-picker__label", text: "结束" });
+		endWrap.createSpan({ cls: "pm-year-picker__label", text: t("结束") });
 		this.endYearSelect = endWrap.createEl("select", {
 			cls: "dropdown pm-filter-select",
 			attr: { "aria-label": "按项目结束年度筛选" },
@@ -253,7 +254,7 @@ export class FilterBar {
 
 	private buildSortGroup(): void {
 		const group = this.host.createDiv({ cls: "pm-filter-group pm-filter-group--sort" });
-		group.createEl("label", { cls: "pm-filter-label", text: "排序" });
+		group.createEl("label", { cls: "pm-filter-label", text: t("排序") });
 		const select = group.createEl("select", { cls: "dropdown pm-filter-select" });
 		this.sortSelect = select;
 		for (const [value, label] of [
@@ -278,8 +279,8 @@ export class FilterBar {
 		this.countEl = group.createDiv({ cls: "pm-filter-count", text: "" });
 		const clear = group.createEl("button", {
 			cls: "pm-filter-clear",
-			text: "清除筛选",
-			attr: { type: "button", title: "清除全部筛选条件，显示所有项目" },
+			text: t("清除筛选"),
+			attr: { type: "button", title: t("清除全部筛选条件，显示所有项目") },
 		});
 		this.clearBtn = clear;
 		this.component.registerDomEvent(clear, "click", () => this.deps.clearFilters());
@@ -428,7 +429,7 @@ function buildStatusChips(state: FilterState, settings: ProjectMasterSettings): 
 	const order = settings.statusOrder.length > 0 ? settings.statusOrder : PROJECT_STATUSES;
 	return order.map((status) => ({
 		value: status,
-		label: `${settings.statusEmoji[status] ?? ""} ${STATUS_LABELS[status]}`.trim(),
+		label: `${settings.statusEmoji[status] ?? ""} ${statusLabel(status)}`.trim(),
 		active: state.statuses.includes(status),
 	}));
 }

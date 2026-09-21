@@ -1,4 +1,4 @@
-import { getIconIds, Plugin, TFile, WorkspaceLeaf } from "obsidian";
+import { getIconIds, moment, Plugin, TFile, WorkspaceLeaf } from "obsidian";
 import { DashboardHost, DashboardView, VIEW_TYPE_PM_DASHBOARD } from "./views/dashboard-view";
 import { pickViewIcon } from "./utils/icon";
 import { ProjectMasterSettingTab } from "./settings";
@@ -9,6 +9,7 @@ import {
 	toFileInfo,
 } from "./services/project-index";
 import { DataIssue, ProjectFileInfo } from "./services/project-item";
+import { applyLanguageSetting, detectLocale, t } from "./i18n";
 import { NoteLink } from "./services/grouping-service";
 import { migrateSettings, withConfigDir } from "./settings-migration";
 import { DEFAULT_SETTINGS, ProjectItem, ProjectMasterSettings } from "./types";
@@ -41,6 +42,8 @@ export default class ProjectMasterPlugin extends Plugin implements DashboardHost
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
+		// 界面语言要在任何视图/设置页渲染之前定下来（否则第一屏文案会用初值）
+		this.applyUiLanguage();
 		this.service = new ProjectService(this.app);
 
 		this.registerView(
@@ -53,13 +56,13 @@ export default class ProjectMasterPlugin extends Plugin implements DashboardHost
 		 * 图标走 `pickViewIcon` 挑：原先写死的 `layout-dashboard` 正是 Obsidian 内置
 		 * 「白板（Canvas）」的图标，侧栏上两个图标撞脸（用户口径 2026-09-20）。
 		 */
-		this.addRibbonIcon(pickViewIcon(getIconIds()), "Open project dashboard", () => {
+		this.addRibbonIcon(pickViewIcon(getIconIds()), t("打开项目中心"), () => {
 			void this.activateView();
 		});
 
 		this.addCommand({
 			id: "open-dashboard",
-			name: "Open project dashboard",
+			name: t("打开项目中心"),
 			callback: () => {
 				void this.activateView();
 			},
@@ -67,7 +70,7 @@ export default class ProjectMasterPlugin extends Plugin implements DashboardHost
 
 		this.addCommand({
 			id: "rebuild-index",
-			name: "Rebuild project index",
+			name: t("重建项目索引"),
 			callback: () => {
 				void this.bootstrap();
 			},
@@ -77,17 +80,17 @@ export default class ProjectMasterPlugin extends Plugin implements DashboardHost
 		// 用户在「设置 → 快捷键」里自己绑；视图内也支持 Ctrl +/- 与 Ctrl+滚轮。
 		this.addCommand({
 			id: "timeline-zoom-in",
-			name: "Timeline: zoom in (finer)",
+			name: t("时间轴：放大（更细）"),
 			callback: () => this.forEachDashboard((view) => view.zoomInCommand()),
 		});
 		this.addCommand({
 			id: "timeline-zoom-out",
-			name: "Timeline: zoom out (coarser)",
+			name: t("时间轴：缩小（更粗）"),
 			callback: () => this.forEachDashboard((view) => view.zoomOutCommand()),
 		});
 		this.addCommand({
 			id: "timeline-zoom-reset",
-			name: "Timeline: reset zoom",
+			name: t("时间轴：恢复缩放"),
 			callback: () => this.forEachDashboard((view) => view.resetZoom()),
 		});
 
@@ -135,6 +138,18 @@ export default class ProjectMasterPlugin extends Plugin implements DashboardHost
 		await this.saveSettings();
 		this.folderNotesCache = null;
 		await this.bootstrap();
+	}
+
+	/**
+	 * 把「界面语言」设置落到运行时（用户口径 2026-09-21）。
+	 *
+	 * 探测宿主语言（`moment.locale()` —— 宿主把界面语言同步给了 moment）与套用设置
+	 * 收在同一处：onload 与设置页共用，避免两处各写一份解析规则。
+	 *
+	 * @returns 语言是否真的变了；变了调用方要重渲染已开着的视图
+	 */
+	applyUiLanguage(): boolean {
+		return applyLanguageSetting(this.settings.uiLanguage, detectLocale(moment.locale()));
 	}
 
 	// ────────────────────────────── 索引编排 ──────────────────────────────

@@ -5,9 +5,11 @@ import {
 	ProjectItem,
 	ProjectStatus,
 	SortMode,
-	STATUS_LABELS,
+	statusLabel,
 } from "../types";
 import { addDaysIso, daysInMonth, formatIso, todayIso } from "../utils/date";
+// services 是纯逻辑层：i18n 的运行时状态模块刻意零依赖，所以这里引它不算引入 Obsidian 依赖
+import { t } from "../i18n";
 
 /**
  * 筛选/排序管道（SPEC §4 F2）—— 纯函数，零 Obsidian 依赖。
@@ -145,11 +147,17 @@ export function presetToStatuses(preset: StatusPreset): ProjectStatus[] {
  * 用户把项目改成 cancelled、项目从看板上消失，完全联想不到是这一档干的
  * （2026-09-21 报的 bug）。
  */
-export const STATUS_PRESET_LABELS: Record<StatusPreset, string> = {
-	"hide-completed": "隐藏已完成/取消/归档",
-	"completed-only": "仅已完成/取消/归档",
-	all: "全部",
-};
+/** 状态快捷档的说法（函数求值，理由同类型层那些 SOURCE 表） */
+export function statusPresetLabel(preset: StatusPreset): string {
+	switch (preset) {
+		case "hide-completed":
+			return t("隐藏已完成/取消/归档");
+		case "completed-only":
+			return t("仅已完成/取消/归档");
+		default:
+			return t("全部");
+	}
+}
 
 /**
  * 年度档的人话描述（统计行与「为什么看不见」两处共用一份，避免措辞慢慢走样）。
@@ -157,7 +165,7 @@ export const STATUS_PRESET_LABELS: Record<StatusPreset, string> = {
  */
 export function describeYearState(state: FilterState): string {
 	const { startYear, endYear } = state;
-	if (startYear === null && endYear === null) return "不限";
+	if (startYear === null && endYear === null) return t("不限");
 	const parts: string[] = [];
 	if (startYear !== null) parts.push(`开始 ${startYear} 年`);
 	if (endYear !== null) parts.push(`结束 ${endYear} 年`);
@@ -511,8 +519,13 @@ export function explainHidden(
 
 	if (passes({ ...state, statuses: presetToStatuses("all") })) {
 		const label =
-			item.status === null ? "无法识别（frontmatter 里的状态值非法）" : STATUS_LABELS[item.status];
-		return `它的状态是「${label}」，被状态档「${STATUS_PRESET_LABELS[detectStatusPreset(state.statuses)]}」排除了（状态档改成「全部」就能看到）`;
+			item.status === null
+				? t("无法识别（frontmatter 里的状态值非法）")
+				: statusLabel(item.status);
+		return t("它的状态是「{label}」，被状态档「{preset}」排除了（状态档改成「全部」就能看到）", {
+			label,
+			preset: statusPresetLabel(detectStatusPreset(state.statuses)),
+		});
 	}
 
 	if (passes({ ...state, startYear: null, endYear: null })) {
@@ -520,16 +533,16 @@ export function explainHidden(
 	}
 
 	if (passes({ ...state, dateRange: { preset: "all", start: null, end: null } })) {
-		return "日期区间筛选把它排除了（区间改成「不限」就能看到）";
+		return t("日期区间筛选把它排除了（区间改成「不限」就能看到）");
 	}
 
 	if (passes({ ...state, areas: [], areaMode: "selected" })) {
-		return "领域筛选把它排除了（清空领域选择就能看到）";
+		return t("领域筛选把它排除了（清空领域选择就能看到）");
 	}
 
 	if (passes({ ...state, search: "" })) {
-		return "名称搜索词与它不匹配（清空搜索框就能看到）";
+		return t("名称搜索词与它不匹配（清空搜索框就能看到）");
 	}
 
-	return "被多个筛选条件同时排除（筛选栏的「清除筛选」可以一次全部放开）";
+	return t("被多个筛选条件同时排除（筛选栏的「清除筛选」可以一次全部放开）");
 }

@@ -1,5 +1,6 @@
 import { App, ColorComponent, Modal, Setting, TextComponent } from "obsidian";
-import { BAR_COLOR_PRESETS, isHexColor } from "../gantt/bar-colors";
+import { t } from "../i18n";
+import { barColorPresets, isHexColor } from "../gantt/bar-colors";
 import { isColorLike } from "../services/normalize";
 import {
 	EditorValues,
@@ -12,11 +13,11 @@ import {
 	buildProjectPatch,
 } from "../services/frontmatter-mapping";
 import {
-	PRIORITY_LABELS,
+	priorityLabel,
 	ProjectItem,
 	ProjectMasterSettings,
 	ProjectStatus,
-	STATUS_LABELS,
+	statusLabel,
 } from "../types";
 
 /**
@@ -74,14 +75,14 @@ export class ProjectEditorModal extends Modal {
 		const mapping = settings.fieldMapping;
 
 		new Setting(contentEl)
-			.setName("状态")
-			.setDesc("对齐模板的中文标签 + 英文值")
+			.setName(t("状态"))
+			.setDesc(t("对齐模板的中文标签 + 英文值"))
 			.addDropdown((dropdown) => {
 				for (const status of settings.statusOrder) {
-					dropdown.addOption(status, `${STATUS_LABELS[status]}（${status}）`);
+					dropdown.addOption(status, `${statusLabel(status)}（${status}）`);
 				}
 				// 数据非法时 status 为 null，必须有一个可表达「未设置」的选项
-				dropdown.addOption("", "（未设置）");
+				dropdown.addOption("", t("（未设置）"));
 				dropdown.setValue(this.values.status ?? "");
 				dropdown.onChange((value) => {
 					const status = value === "" ? null : (value as ProjectStatus);
@@ -103,26 +104,26 @@ export class ProjectEditorModal extends Modal {
 				});
 			});
 
-		new Setting(contentEl).setName("优先级").addDropdown((dropdown) => {
+		new Setting(contentEl).setName(t("优先级")).addDropdown((dropdown) => {
 			for (const value of ["1", "2", "3", "4", "5"]) {
-				dropdown.addOption(value, `${PRIORITY_LABELS[value] ?? ""}（${value}）`);
+				dropdown.addOption(value, `${priorityLabel(value)}（${value}）`);
 			}
-			dropdown.addOption("", "（未设置）");
+			dropdown.addOption("", t("（未设置）"));
 			dropdown.setValue(this.values.priority ?? "");
 			dropdown.onChange((value) => {
 				this.values.priority = value === "" ? null : value;
 			});
 		});
 
-		this.addDateSetting(contentEl, "开始日期", this.values.startDate, (value) => {
+		this.addDateSetting(contentEl, t("开始日期"), this.values.startDate, (value) => {
 			this.values.startDate = value;
 		});
-		this.addDateSetting(contentEl, "截止日期", this.values.dueDate, (value) => {
+		this.addDateSetting(contentEl, t("截止日期"), this.values.dueDate, (value) => {
 			this.values.dueDate = value;
 		});
 		this.addDateSetting(
 			contentEl,
-			"实际完成日",
+			t("实际完成日"),
 			this.values.completionDate,
 			(value) => {
 				this.values.completionDate = value;
@@ -130,36 +131,38 @@ export class ProjectEditorModal extends Modal {
 		);
 
 		new Setting(contentEl)
-			.setName("进度")
-			.setDesc("0–100；留空表示未设置。状态改成「完成」时会自动填 100，可再手动改")
+			.setName(t("进度"))
+			.setDesc(t("0–100；留空表示未设置。状态改成「完成」时会自动填 100，可再手动改"))
 			.addText((text) => {
 				this.progressText = text;
 				text.inputEl.type = "number";
 				text.inputEl.min = "0";
 				text.inputEl.max = "100";
 				text.setValue(this.values.progress === null ? "" : String(this.values.progress));
-				text.setPlaceholder("未设置");
+				text.setPlaceholder(t("未设置"));
 				text.onChange((value) => {
 					this.values.progress = parseNumberInput(value, 0, 100);
 				});
 			});
 
-		this.addListSetting(contentEl, "领域", this.values.area, (list) => {
+		this.addListSetting(contentEl, t("领域"), this.values.area, (list) => {
 			this.values.area = list;
 		});
-		this.addTextSetting(contentEl, "目标（objective）", this.values.objective, (v) => {
+		this.addTextSetting(contentEl, t("目标（objective）"), this.values.objective, (v) => {
 			this.values.objective = v;
 		});
-		this.addTextSetting(contentEl, "项目负责人", this.values.projectLeader, (v) => {
+		this.addTextSetting(contentEl, t("项目负责人"), this.values.projectLeader, (v) => {
 			this.values.projectLeader = v;
 		});
-		this.addListSetting(contentEl, "项目成员", this.values.projectMembers, (list) => {
+		this.addListSetting(contentEl, t("项目成员"), this.values.projectMembers, (list) => {
 			this.values.projectMembers = list;
 		});
 
 		new Setting(contentEl)
-			.setName("长期项目")
-			.setDesc("开启后豁免全部日期筛选，并且不上甘特图——只在面板里出现（没有确定的时间边界）")
+			.setName(t("长期项目"))
+			.setDesc(
+				t("开启后豁免全部日期筛选，并且不上甘特图——只在面板里出现（没有确定的时间边界）"),
+			)
 			.addToggle((toggle) => {
 				toggle.setValue(this.values.longTerm);
 				toggle.onChange((value) => {
@@ -168,8 +171,8 @@ export class ProjectEditorModal extends Modal {
 			});
 
 		new Setting(contentEl)
-			.setName("主项目")
-			.setDesc("同文件夹多个项目时，作为该文件夹的代表卡片")
+			.setName(t("主项目"))
+			.setDesc(t("同文件夹多个项目时，作为该文件夹的代表卡片"))
 			.addToggle((toggle) => {
 				toggle.setValue(this.values.mainProject);
 				toggle.onChange((value) => {
@@ -194,7 +197,7 @@ export class ProjectEditorModal extends Modal {
 		// Modal 不是 Component（没有 registerDomEvent）；这些节点随 onClose 一并销毁
 		const save = actions.createEl("button", {
 			cls: "mod-cta",
-			text: "保存",
+			text: t("保存"),
 			attr: { type: "button" },
 		});
 		save.addEventListener("click", () => {
@@ -202,13 +205,13 @@ export class ProjectEditorModal extends Modal {
 		});
 
 		const cancel = actions.createEl("button", {
-			text: "取消",
+			text: t("取消"),
 			attr: { type: "button" },
 		});
 		cancel.addEventListener("click", () => this.close());
 
 		const open = actions.createEl("button", {
-			text: "打开笔记",
+			text: t("打开笔记"),
 			attr: { type: "button" },
 		});
 		open.addEventListener("click", () => {
@@ -219,10 +222,10 @@ export class ProjectEditorModal extends Modal {
 		// F4.4：只移除 type 字段，笔记本体保留；需要二次确认
 		const clear = actions.createEl("button", {
 			cls: "mod-warning",
-			text: "清除项目标记",
+			text: t("清除项目标记"),
 			attr: {
 				type: "button",
-				title: "仅从插件管理中移除（删除 type 字段），不会删除笔记",
+				title: t("仅从插件管理中移除（删除 type 字段），不会删除笔记"),
 			},
 		});
 		clear.addEventListener("click", () => {
@@ -247,7 +250,7 @@ export class ProjectEditorModal extends Modal {
 	private async handleClear(button: HTMLButtonElement): Promise<void> {
 		if (!this.confirmingClear) {
 			this.confirmingClear = true;
-			button.setText("再点一次确认清除");
+			button.setText(t("再点一次确认清除"));
 			button.addClass("pm-confirm");
 			return;
 		}
@@ -269,14 +272,14 @@ export class ProjectEditorModal extends Modal {
 	 */
 	private renderColorSetting(host: HTMLElement): void {
 		const setting = new Setting(host)
-			.setName("甘特条颜色")
+			.setName(t("甘特条颜色"))
 			.setDesc(
-				"点色块选主题色；也可直接填 #ff8800、var(--color-blue)、颜色名。留空则按项目状态用默认色。",
+				t("点色块选主题色；也可直接填 #ff8800、var(--color-blue)、颜色名。留空则按项目状态用默认色。"),
 			);
 
 		setting.addText((text) => {
 			this.colorText = text;
-			text.setPlaceholder("默认（按状态）");
+			text.setPlaceholder(t("默认（按状态）"));
 			text.setValue(this.values.color ?? "");
 			text.onChange((value) => {
 				const trimmed = value.trim();
@@ -294,7 +297,7 @@ export class ProjectEditorModal extends Modal {
 		// 预设色块独占一行：塞进 Setting 右上角的控件区会把那一行挤成一团
 		const presets = host.createDiv({ cls: "pm-color-presets" });
 		this.colorPresetsEl = presets;
-		for (const preset of BAR_COLOR_PRESETS) {
+		for (const preset of barColorPresets()) {
 			const swatch = presets.createEl("button", {
 				cls: `pm-color-swatch${preset.value === null ? " pm-color-swatch--default" : ""}`,
 				attr: { type: "button", title: preset.label, "aria-label": preset.label },
@@ -355,7 +358,7 @@ export class ProjectEditorModal extends Modal {
 		hint.setText(
 			color === null
 				? ""
-				: "Mermaid 导出不支持逐任务配色，该颜色只影响自绘甘特图。",
+				: t("Mermaid 导出不支持逐任务配色，该颜色只影响自绘甘特图。"),
 		);
 	}
 
@@ -397,7 +400,7 @@ export class ProjectEditorModal extends Modal {
 	): void {
 		new Setting(host)
 			.setName(name)
-			.setDesc("多个值用逗号分隔")
+			.setDesc(t("多个值用逗号分隔"))
 			.addText((text) => {
 				text.setValue(formatListInput(initial));
 				text.onChange((value) => {

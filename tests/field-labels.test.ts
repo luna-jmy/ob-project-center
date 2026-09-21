@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_FIELD_MAPPING, FIELD_MAPPING_LABELS } from "../src/types";
+import { DEFAULT_FIELD_MAPPING, fieldCopy } from "../src/types";
 
 /*
  * 字段映射在设置页上的说法：只讲人话，不讲代码（用户口径 2026-09-20）。
@@ -12,18 +12,23 @@ describe("字段映射的设置页文案", () => {
 	const keys = Object.keys(DEFAULT_FIELD_MAPPING) as (keyof typeof DEFAULT_FIELD_MAPPING)[];
 
 	it("covers every mapped field", () => {
-		expect(Object.keys(FIELD_MAPPING_LABELS).sort()).toEqual([...keys].sort());
+		// 覆盖性由类型保证（Record<keyof FieldMappingConfig, …>），这里守住内容非空
+		for (const key of keys) {
+			const { label, desc } = fieldCopy(key);
+			expect(label.length, key).toBeGreaterThan(0);
+			expect(desc.length, key).toBeGreaterThan(0);
+		}
 	});
 
 	it("shows 项目完成日期 for completionDate instead of the code-side name", () => {
-		expect(FIELD_MAPPING_LABELS.completionDate.label).toBe("项目完成日期");
-		expect(FIELD_MAPPING_LABELS.completionDate.label).not.toContain("completionDate");
-		expect(FIELD_MAPPING_LABELS.completionDate.label).not.toContain("completion_date");
+		expect(fieldCopy("completionDate").label).toBe("项目完成日期");
+		expect(fieldCopy("completionDate").label).not.toContain("completionDate");
+		expect(fieldCopy("completionDate").label).not.toContain("completion_date");
 	});
 
 	it("never leaks a code-side key name into a label", () => {
 		for (const key of keys) {
-			const { label, desc } = FIELD_MAPPING_LABELS[key];
+			const { label, desc } = fieldCopy(key);
 			// 逻辑键名是 camelCase（startDate / projectMembers…），标签里不该出现这种写法
 			expect(label).not.toMatch(/[a-z][A-Z]/);
 			expect(label.toLowerCase()).not.toBe(key.toLowerCase());

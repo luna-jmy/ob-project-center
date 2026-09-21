@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { GroupSectionSpec, ProjectItem, ProjectMasterSettings } from "../types";
 
 /**
@@ -257,7 +258,7 @@ function groupByKind(items: ProjectItem[], quickPaths: string[]): GroupBuckets {
 	const quickGroups: QuickGroup[] =
 		quickProjects.length === 0
 			? []
-			: [{ folder: KIND_QUICK_KEY, title: "快速项目", projects: quickProjects }];
+			: [{ folder: KIND_QUICK_KEY, title: t("快速项目"), projects: quickProjects }];
 
 	// 保持排序档给出的顺序：过滤比「把两个形态桶拼起来」更不容易打乱顺序
 	return {
@@ -397,7 +398,7 @@ function groupByFolder(
 	const quickGroups: QuickGroup[] = [];
 	// 根目录组固定排最前（脚本 push 顺序）
 	for (const [folder, projects] of rootQuick) {
-		quickGroups.push({ folder, title: "快速项目（根目录）", projects });
+		quickGroups.push({ folder, title: t("快速项目（根目录）"), projects });
 	}
 	const sortedMarkerEntries = [...markerQuick.entries()].sort((a, b) =>
 		compareCodepoint(a[0], b[0]),

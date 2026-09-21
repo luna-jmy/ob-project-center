@@ -1,4 +1,5 @@
 import { App, Component, MarkdownRenderer, Notice } from "obsidian";
+import { t } from "../i18n";
 import {
 	MermaidImageExport,
 	resolveExportBackground,
@@ -55,60 +56,73 @@ export interface MermaidPanelHost {
 type ToggleKey = "todayMarker" | "excludeWeekends";
 type DateFieldKey = "excludeDates" | "includeDates";
 
-/** 开关型选项：按钮直接控制，省掉一整套 Setting 行占掉预览的高度 */
-const TOGGLES: { key: ToggleKey; label: string; hint: string }[] = [
-	{ key: "todayMarker", label: "今天线", hint: "导出的代码里保留今天的竖线" },
-	{
-		key: "excludeWeekends",
-		label: "排除周末",
-		hint:
-			"把周六周日标成非工作日：自绘甘特图与导出的图都会把它们画成灰色列。\n" +
-			"注意：任务条长度始终按起止日期算（自然日），不会因为跳过周末而缩短——" +
-			"mermaid 只在任务写成「时长」时才会按工作日重排。",
-	},
-];
+/**
+ * 开关型选项：按钮直接控制，省掉一整套 Setting 行占掉预览的高度。
+ *
+ * 写成函数而不是模块级常量：文案要按当前语言求值，常量会在 import 时把语言冻住
+ * （见 src/i18n/index.ts 的说明）。
+ */
+function toggleSpecs(): { key: ToggleKey; label: string; hint: string }[] {
+	return [
+		{ key: "todayMarker", label: t("今天线"), hint: t("导出的代码里保留今天的竖线") },
+		{
+			key: "excludeWeekends",
+			label: t("排除周末"),
+			hint: t(
+				"把周六周日标成非工作日：自绘甘特图与导出的图都会把它们画成灰色列。\n注意：任务条长度始终按起止日期算（自然日），不会因为跳过周末而缩短——mermaid 只在任务写成「时长」时才会按工作日重排。",
+			),
+		},
+	];
+}
 
 /**
  * 两个日期清单（国内日历的两半）：
  * 节假日进 excludes，调休补班进 includes——后者优先级更高，能把落在周末的补班日捞回工作日。
  */
-const DATE_FIELDS: {
+interface DateFieldSpec {
 	key: DateFieldKey;
 	label: string;
 	placeholder: string;
 	hint: string;
-}[] = [
-	{
-		key: "excludeDates",
-		label: "排除日期",
-		placeholder: "2026-10-01~2026-10-07",
-		hint:
-			"临时补充的排除日期。支持区间 2026-10-01~2026-10-07（也认「至」），多条用逗号分隔；" +
-			"这些日子在图上会画成灰色的非工作日。\n成规模的法定节假日建议在设置里按年份维护「法定节假日排期」，导出时会自动套用。",
-	},
-	{
-		key: "includeDates",
-		label: "调休上班",
-		placeholder: "2026-10-10",
-		hint:
-			"临时补充的调休补班日。写法同上；这些日子强制算工作日（优先级高于排除），" +
-			"用于把「周六但要上班」从灰色里捞回来。\n年度排期里的补班日会自动套用，这里只填例外。",
-	},
-];
+}
+
+/** 日期清单同样是函数（理由见 toggleSpecs） */
+function dateFieldSpecs(): DateFieldSpec[] {
+	return [
+		{
+			key: "excludeDates",
+			label: t("排除日期"),
+			placeholder: "2026-10-01~2026-10-07",
+			hint: t(
+				"临时补充的排除日期。支持区间 2026-10-01~2026-10-07（也认「至」），多条用逗号分隔；这些日子在图上会画成灰色的非工作日。\n成规模的法定节假日建议在设置里按年份维护「法定节假日排期」，导出时会自动套用。",
+			),
+		},
+		{
+			key: "includeDates",
+			label: t("调休上班"),
+			placeholder: "2026-10-10",
+			hint: t(
+				"临时补充的调休补班日。写法同上；这些日子强制算工作日（优先级高于排除），用于把「周六但要上班」从灰色里捞回来。\n年度排期里的补班日会自动套用，这里只填例外。",
+			),
+		},
+	];
+}
 
 /** 图片出口（用户口径 2026-09-21）：文案与提示写在一处，将来加格式只改这张表 */
-const IMAGE_EXPORTS: { format: "svg" | "jpg"; label: string; hint: string }[] = [
-	{
-		format: "svg",
-		label: "导出 SVG",
-		hint: "把预览里的图存成矢量图（.svg）：放大不糊，也能再拿去别的工具里改",
-	},
-	{
-		format: "jpg",
-		label: "导出 JPG",
-		hint: "把预览里的图存成位图（.jpg，2 倍分辨率、底色跟随主题）：适合贴进聊天或文档",
-	},
-];
+function imageExports(): { format: "svg" | "jpg"; label: string; hint: string }[] {
+	return [
+		{
+			format: "svg",
+			label: t("导出 SVG"),
+			hint: t("把预览里的图存成矢量图（.svg）：放大不糊，也能再拿去别的工具里改"),
+		},
+		{
+			format: "jpg",
+			label: t("导出 JPG"),
+			hint: t("把预览里的图存成位图（.jpg，2 倍分辨率、底色跟随主题）：适合贴进聊天或文档"),
+		},
+	];
+}
 
 /** 日期输入的防抖：每次按键都重算预览会卡，还会连着写盘 */
 const INPUT_DEBOUNCE_MS = 400;
@@ -140,7 +154,7 @@ export class MermaidPanel {
 
 		const bar = this.host.createDiv({ cls: "pm-mermaid__bar" });
 
-		for (const toggle of TOGGLES) {
+		for (const toggle of toggleSpecs()) {
 			const button = bar.createEl("button", {
 				cls: "pm-chip",
 				text: toggle.label,
@@ -155,7 +169,7 @@ export class MermaidPanel {
 			});
 		}
 
-		for (const spec of DATE_FIELDS) {
+		for (const spec of dateFieldSpecs()) {
 			const field = bar.createEl("label", {
 				cls: "pm-mermaid__field",
 				attr: { title: spec.hint },
@@ -180,8 +194,9 @@ export class MermaidPanel {
 			cls: "pm-mermaid__hint",
 			text: "ⓘ",
 			attr: {
-				title:
+				title: t(
 					"Mermaid 的 gantt 语法不支持逐任务配色，自定义颜色只影响左侧自绘甘特图，导出时会忽略。",
+				),
 			},
 		});
 
@@ -190,17 +205,17 @@ export class MermaidPanel {
 
 		const exportButton = actions.createEl("button", {
 			cls: "pm-btn mod-cta",
-			text: "导出代码",
-			attr: { type: "button", title: "复制当前预览的 Mermaid 代码" },
+			text: t("导出代码"),
+			attr: { type: "button", title: t("复制当前预览的 Mermaid 代码") },
 		});
 		this.component.registerDomEvent(exportButton, "click", () => this.deps.onExportCode());
 
 		const writeButton = actions.createEl("button", {
 			cls: "pm-btn",
-			text: "写入笔记",
+			text: t("写入笔记"),
 			attr: {
 				type: "button",
-				title: "覆盖指定笔记的落点标记之间的内容（标记可在设置里改）",
+				title: t("覆盖指定笔记的落点标记之间的内容（标记可在设置里改）"),
 			},
 		});
 		this.component.registerDomEvent(writeButton, "click", () => this.deps.onWriteToNote());
@@ -209,7 +224,7 @@ export class MermaidPanel {
 		 * 图片出口（用户口径 2026-09-21）：把预览里那张图直接存成文件。
 		 * SVG 给「要接着改 / 要无限放大」的场合，JPG 给「贴进聊天、文档」的场合。
 		 */
-		for (const spec of IMAGE_EXPORTS) {
+		for (const spec of imageExports()) {
 			const button = actions.createEl("button", {
 				cls: "pm-btn",
 				text: spec.label,
@@ -231,7 +246,7 @@ export class MermaidPanel {
 	private async exportImage(format: "svg" | "jpg"): Promise<void> {
 		const svg = this.previewEl?.querySelector<SVGSVGElement>("svg") ?? null;
 		if (svg === null) {
-			new Notice("预览里还没有可导出的图，等它渲染完再点一次");
+			new Notice(t("预览里还没有可导出的图，等它渲染完再点一次"));
 			return;
 		}
 		try {

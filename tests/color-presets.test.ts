@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BAR_COLOR_PRESETS, isHexColor } from "../src/gantt/bar-colors";
+import { barColorPresets, isHexColor } from "../src/gantt/bar-colors";
 import { isColorLike } from "../src/services/normalize";
 
 /*
@@ -10,30 +10,32 @@ import { isColorLike } from "../src/services/normalize";
  */
 describe("甘特条预设颜色", () => {
 	it("every preset passes the same validator the index uses", () => {
-		for (const preset of BAR_COLOR_PRESETS) {
+		for (const preset of barColorPresets()) {
 			if (preset.value === null) continue;
 			expect(isColorLike(preset.value), `${preset.label} → ${preset.value}`).toBe(true);
 		}
 	});
 
 	it("uses theme variables so light and dark themes both look right", () => {
-		for (const preset of BAR_COLOR_PRESETS) {
+		for (const preset of barColorPresets()) {
 			if (preset.value === null) continue;
 			expect(preset.value.startsWith("var(--")).toBe(true);
 		}
 	});
 
 	it("has exactly one 「默认」 slot and it carries no value", () => {
-		const defaults = BAR_COLOR_PRESETS.filter((preset) => preset.value === null);
+		const presets = barColorPresets();
+		const defaults = presets.filter((preset) => preset.value === null);
 		expect(defaults).toHaveLength(1);
 		expect(defaults[0]?.label).toContain("默认");
 	});
 
 	it("offers enough colors to be useful, without duplicates in value or label", () => {
-		expect(BAR_COLOR_PRESETS.length).toBeGreaterThanOrEqual(6);
-		const values = BAR_COLOR_PRESETS.map((preset) => preset.value);
+		const presets = barColorPresets();
+		expect(presets.length).toBeGreaterThanOrEqual(6);
+		const values = presets.map((preset) => preset.value);
 		expect(new Set(values).size).toBe(values.length);
-		const labels = BAR_COLOR_PRESETS.map((preset) => preset.label);
+		const labels = presets.map((preset) => preset.label);
 		expect(new Set(labels).size).toBe(labels.length);
 	});
 });

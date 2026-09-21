@@ -1,4 +1,5 @@
 import { App, Modal, Setting } from "obsidian";
+import { t } from "../i18n";
 import {
 	EditorValues,
 	buildNewProjectPatch,
@@ -12,10 +13,10 @@ import {
 	sanitizeNoteName,
 } from "../services/project-service";
 import {
-	PRIORITY_LABELS,
+	priorityLabel,
 	ProjectMasterSettings,
 	ProjectStatus,
-	STATUS_LABELS,
+	statusLabel,
 } from "../types";
 
 /**
@@ -81,15 +82,15 @@ export class NewProjectModal extends Modal {
 		const { contentEl } = this;
 		contentEl.empty();
 		contentEl.addClass("pm-modal");
-		this.titleEl.setText("新建项目");
+		this.titleEl.setText(t("新建项目"));
 
 		const settings = this.deps.getSettings();
 
 		new Setting(contentEl)
-			.setName("项目名称")
-			.setDesc("非法字符会被替换为连字符")
+			.setName(t("项目名称"))
+			.setDesc(t("非法字符会被替换为连字符"))
 			.addText((text) => {
-				text.setPlaceholder("例如：官网改版");
+				text.setPlaceholder(t("例如：官网改版"));
 				text.onChange((value) => {
 					this.title = value;
 					this.updateLocationHint();
@@ -98,11 +99,13 @@ export class NewProjectModal extends Modal {
 			});
 
 		new Setting(contentEl)
-			.setName("项目形态")
-			.setDesc("带文件夹的项目把资料/笔记收在自己的子文件夹里；快速项目只放一份文档。")
+			.setName(t("项目形态"))
+			.setDesc(
+				t("带文件夹的项目把资料/笔记收在自己的子文件夹里；快速项目只放一份文档。"),
+			)
 			.addDropdown((dropdown) => {
-				dropdown.addOption("folder", "带文件夹（正常项目）");
-				dropdown.addOption("quick", "不带文件夹（快速项目）");
+				dropdown.addOption("folder", t("带文件夹（正常项目）"));
+				dropdown.addOption("quick", t("不带文件夹（快速项目）"));
 				dropdown.setValue(this.shape);
 				dropdown.onChange((value) => {
 					this.shape = value === "quick" ? "quick" : "folder";
@@ -118,11 +121,13 @@ export class NewProjectModal extends Modal {
 		 * （如 `100 Projects/2026工作项目`），而不是把两者挤进一个输入框。
 		 */
 		const scanFolders = settings.scanFolders;
-		const parentSetting = new Setting(contentEl).setName("上级目录");
+		const parentSetting = new Setting(contentEl).setName(t("上级目录"));
 		if (scanFolders.length === 0) {
 			// 一个扫描目录都没配（用户清空过设置）：下拉没有可选项，退回手输
 			parentSetting
-				.setDesc("设置里尚未配置项目扫描目录，请手输创建位置（建议先去设置里补上）")
+				.setDesc(
+					t("设置里尚未配置项目扫描目录，请手输创建位置（建议先去设置里补上）"),
+				)
 				.addText((text) => {
 					text.setValue(this.scanFolder);
 					text.onChange((value) => {
@@ -134,8 +139,8 @@ export class NewProjectModal extends Modal {
 			parentSetting
 				.setDesc(
 					scanFolders.length > 1
-						? "从设置里的项目扫描目录中选一个"
-						: "取设置里的项目扫描目录",
+						? t("从设置里的项目扫描目录中选一个")
+						: t("取设置里的项目扫描目录"),
 				)
 				.addDropdown((dropdown) => {
 					for (const folder of scanFolders) {
@@ -150,10 +155,10 @@ export class NewProjectModal extends Modal {
 		}
 
 		new Setting(contentEl)
-			.setName("子文件夹（可选）")
-			.setDesc("多级用 / 分隔，例如 2026工作项目；留空 = 直接放在上面的扫描目录下。")
+			.setName(t("子文件夹（可选）"))
+			.setDesc(t("多级用 / 分隔，例如 2026工作项目；留空 = 直接放在上面的扫描目录下。"))
 			.addText((text) => {
-				text.setPlaceholder("留空 = 放在扫描目录下");
+				text.setPlaceholder(t("留空 = 放在扫描目录下"));
 				text.onChange((value) => {
 					this.subFolder = value;
 					this.updateLocationHint();
@@ -166,10 +171,10 @@ export class NewProjectModal extends Modal {
 		 */
 		const materialsFolder = settings.materialsFolderName.trim();
 		this.materialsSetting = new Setting(contentEl)
-			.setName("同时创建资料子文件夹")
+			.setName(t("同时创建资料子文件夹"))
 			.setDesc(
 				materialsFolder.length === 0
-					? "未设资料子文件夹名（资料与项目文档放同一个文件夹），不会预建子文件夹。"
+					? t("未设资料子文件夹名（资料与项目文档放同一个文件夹），不会预建子文件夹。")
 					: `在项目文件夹下预建「${materialsFolder}」，用于放该项目的资料/笔记。`,
 			)
 			.addToggle((toggle) => {
@@ -181,9 +186,9 @@ export class NewProjectModal extends Modal {
 
 		this.locationHintEl = contentEl.createDiv({ cls: "pm-modal__hint" });
 
-		new Setting(contentEl).setName("状态").addDropdown((dropdown) => {
+		new Setting(contentEl).setName(t("状态")).addDropdown((dropdown) => {
 			for (const status of settings.statusOrder) {
-				dropdown.addOption(status, `${STATUS_LABELS[status]}（${status}）`);
+				dropdown.addOption(status, `${statusLabel(status)}（${status}）`);
 			}
 			dropdown.setValue(this.values.status ?? "inbox");
 			dropdown.onChange((value) => {
@@ -191,25 +196,25 @@ export class NewProjectModal extends Modal {
 			});
 		});
 
-		new Setting(contentEl).setName("优先级").addDropdown((dropdown) => {
+		new Setting(contentEl).setName(t("优先级")).addDropdown((dropdown) => {
 			for (const value of ["1", "2", "3", "4", "5"]) {
-				dropdown.addOption(value, `${PRIORITY_LABELS[value] ?? ""}（${value}）`);
+				dropdown.addOption(value, `${priorityLabel(value)}（${value}）`);
 			}
-			dropdown.addOption("", "（未设置）");
+			dropdown.addOption("", t("（未设置）"));
 			dropdown.setValue("");
 			dropdown.onChange((value) => {
 				this.values.priority = value === "" ? null : value;
 			});
 		});
 
-		new Setting(contentEl).setName("开始日期").addText((text) => {
+		new Setting(contentEl).setName(t("开始日期")).addText((text) => {
 			text.inputEl.type = "date";
 			text.onChange((value) => {
 				this.values.startDate = parseDateInput(value);
 			});
 		});
 
-		new Setting(contentEl).setName("截止日期").addText((text) => {
+		new Setting(contentEl).setName(t("截止日期")).addText((text) => {
 			text.inputEl.type = "date";
 			text.onChange((value) => {
 				this.values.dueDate = parseDateInput(value);
@@ -217,8 +222,8 @@ export class NewProjectModal extends Modal {
 		});
 
 		new Setting(contentEl)
-			.setName("目标（objective）")
-			.setDesc("甘特图按它分节")
+			.setName(t("目标（objective）"))
+			.setDesc(t("甘特图按它分节"))
 			.addText((text) => {
 				text.onChange((value) => {
 					const trimmed = value.trim();
@@ -227,8 +232,8 @@ export class NewProjectModal extends Modal {
 			});
 
 		new Setting(contentEl)
-			.setName("领域")
-			.setDesc("多个值用逗号分隔")
+			.setName(t("领域"))
+			.setDesc(t("多个值用逗号分隔"))
 			.addText((text) => {
 				text.onChange((value) => {
 					this.values.area = parseListInput(value);
@@ -241,7 +246,7 @@ export class NewProjectModal extends Modal {
 		const actions = contentEl.createDiv({ cls: "pm-modal__actions" });
 		const create = actions.createEl("button", {
 			cls: "mod-cta",
-			text: "创建",
+			text: t("创建"),
 			attr: { type: "button" },
 		});
 		create.addEventListener("click", () => {
@@ -249,7 +254,7 @@ export class NewProjectModal extends Modal {
 		});
 
 		const createAndOpen = actions.createEl("button", {
-			text: "创建并打开",
+			text: t("创建并打开"),
 			attr: { type: "button" },
 		});
 		createAndOpen.addEventListener("click", () => {
@@ -257,7 +262,7 @@ export class NewProjectModal extends Modal {
 		});
 
 		const cancel = actions.createEl("button", {
-			text: "取消",
+			text: t("取消"),
 			attr: { type: "button" },
 		});
 		cancel.addEventListener("click", () => this.close());
@@ -304,12 +309,15 @@ export class NewProjectModal extends Modal {
 			const marker = settings.quickProjectMarker.trim();
 			const extras =
 				marker.length === 0
-					? "，直接放在该目录下"
-					: `；缺「${marker}」文件夹会自动新建`;
+					? t("，直接放在该目录下")
+					: t("；缺「{marker}」文件夹会自动新建", { marker });
 			return {
 				folderPath,
 				extraFolders: [],
-				hint: `将创建：${joinPath(folderPath, `${name}.md`)}（快速项目${extras}）`,
+				hint: t("将创建：{path}（快速项目{extras}）", {
+					path: joinPath(folderPath, `${name}.md`),
+					extras,
+				}),
 			};
 		}
 		const folderPath = joinPath(parent, name);
@@ -317,24 +325,30 @@ export class NewProjectModal extends Modal {
 			this.withMaterials && settings.materialsFolderName.trim().length > 0
 				? [joinPath(folderPath, settings.materialsFolderName.trim())]
 				: [];
-		const extras = extraFolders.length > 0 ? `，并预建「${settings.materialsFolderName}」子文件夹` : "";
+		const extras =
+			extraFolders.length > 0
+				? t("，并预建「{name}」子文件夹", { name: settings.materialsFolderName })
+				: "";
 		return {
 			folderPath,
 			extraFolders,
-			hint: `将创建：${joinPath(folderPath, `${name}.md`)}${extras}`,
+			hint: t("将创建：{path}{extras}", {
+				path: joinPath(folderPath, `${name}.md`),
+				extras,
+			}),
 		};
 	}
 
 	/** 展示用名：与真正落盘时的清洗保持一致，避免提示与实际不符 */
 	private sanitizeForDisplay(): string {
 		const raw = this.title.trim();
-		return raw.length === 0 ? "新项目" : sanitizeNoteName(raw);
+		return raw.length === 0 ? t("新项目") : sanitizeNoteName(raw);
 	}
 
 	private async submit(openAfter: boolean): Promise<void> {
 		if (this.busy) return;
 		if (this.title.trim().length === 0) {
-			this.showError("请填写项目名称。");
+			this.showError(t("请填写项目名称。"));
 			return;
 		}
 		this.busy = true;

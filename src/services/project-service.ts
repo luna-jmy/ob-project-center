@@ -1,4 +1,5 @@
 import { App, moment, Notice, TFile, normalizePath } from "obsidian";
+import { t } from "../i18n";
 import { FieldMappingConfig } from "../types";
 
 /**
@@ -39,7 +40,7 @@ export function sanitizeNoteName(raw: string): string {
 	name = name.replace(/\s+/g, " ").trim();
 	// 尾随点/空格在 Windows 上会被文件系统裁掉
 	name = name.replace(/[. ]+$/g, "");
-	if (name.length === 0) return "新项目";
+	if (name.length === 0) return t("新项目");
 	if (RESERVED_NAMES.test(name)) return `_${name}`;
 	return name;
 }
@@ -222,7 +223,7 @@ export class ProjectService {
 		if (!block.includes(startMarker) || !block.includes(endMarker)) {
 			return {
 				ok: false,
-				message: "内部错误：待写入内容未包含落点标记，已放弃写入（笔记未修改）。",
+				message: t("内部错误：待写入内容未包含落点标记，已放弃写入（笔记未修改）。"),
 			};
 		}
 		const file = this.resolveFile(path);
@@ -390,7 +391,7 @@ export class ProjectService {
 			 * 笔记已经建好了，不能因为模板出错就把整条创建算失败——提示一句，
 			 * 命令原样留在笔记里，用户想跑随时可以再执行一次。
 			 */
-			new Notice("模板命令未全部执行，笔记已按模板原文创建；可稍后执行一次模板命令重跑");
+			new Notice(t("模板命令未全部执行，笔记已按模板原文创建；可稍后执行一次模板命令重跑"));
 		}
 	}
 

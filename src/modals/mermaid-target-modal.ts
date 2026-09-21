@@ -1,4 +1,5 @@
 import { App, FuzzySuggestModal, TFile } from "obsidian";
+import { t } from "../i18n";
 
 /**
  * 「导出到笔记」的目标选择（SPEC F1.7 增强项）。
@@ -12,7 +13,7 @@ export class MermaidTargetModal extends FuzzySuggestModal<TFile> {
 		private readonly onPick: (file: TFile) => void,
 	) {
 		super(app);
-		this.setPlaceholder("选择要写入 Mermaid 的笔记（其标记块内内容会被替换）");
+		this.setPlaceholder(t("选择要写入 Mermaid 的笔记（其标记块内内容会被替换）"));
 	}
 
 	getItems(): TFile[] {

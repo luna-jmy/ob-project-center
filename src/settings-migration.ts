@@ -197,6 +197,12 @@ export function migrateSettings(raw: unknown): ProjectMasterSettings {
 		fieldMapping: fieldMapping(source.fieldMapping),
 		ganttBarColors: ganttBarColors(source.ganttBarColors),
 		cardFontScale: cardFontScale(source.cardFontScale),
+		// 界面语言：认不出的值退回 auto（跟随宿主），不会因为写错就把界面锁死在某一语言
+		uiLanguage: enumValue(
+			source.uiLanguage,
+			["auto", "zh", "en"] as const,
+			DEFAULT_SETTINGS.uiLanguage,
+		),
 		statusAliases: statusAliasMap(source.statusAliases) ?? { ...DEFAULT_SETTINGS.statusAliases },
 		statusEmoji: stringMap(source.statusEmoji) ?? { ...DEFAULT_SETTINGS.statusEmoji },
 		statusOrder: statusOrderList(source.statusOrder),

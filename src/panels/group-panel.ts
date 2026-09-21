@@ -1,5 +1,6 @@
 import { Component } from "obsidian";
-import { GANTT_SKIP_MESSAGES, GanttSkipReason } from "../gantt/gantt-model";
+import { t } from "../i18n";
+import { ganttSkipMessage, GanttSkipReason } from "../gantt/gantt-model";
 import { childKeys, DragReorder, DragReorderCommit } from "./drag-reorder";
 import {
 	GroupingResult,
@@ -275,7 +276,7 @@ export class GroupPanel {
 
 		if (result.quickGroups.length > 0) {
 			const section = this.host.createDiv({ cls: "pm-group-panel__section" });
-			section.createEl("h3", { cls: "pm-section-title", text: "⚡ 快速项目" });
+			section.createEl("h3", { cls: "pm-section-title", text: `⚡ ${t("快速项目")}` });
 			const list = section.createDiv({ cls: "pm-group-list" });
 			// 拖动分组时要从这里读回 key 顺序（快速分区与普通分组共用一份分组顺序表）
 			list.dataset.groupList = "quick";
@@ -326,7 +327,7 @@ export class GroupPanel {
 		}
 
 		if (result.quickGroups.length === 0 && result.normalGroups.length === 0) {
-			this.host.createDiv({ cls: "pm-empty", text: "没有符合当前筛选条件的项目" });
+			this.host.createDiv({ cls: "pm-empty", text: t("没有符合当前筛选条件的项目") });
 		}
 	}
 
@@ -374,7 +375,7 @@ export class GroupPanel {
 
 		if (buckets.withMaterials.length > 0) {
 			const bucket = body.createDiv({ cls: "pm-group__bucket" });
-			bucket.createDiv({ cls: "pm-group__bucket-label", text: "带资料的项目" });
+			bucket.createDiv({ cls: "pm-group__bucket-label", text: t("带资料的项目") });
 			for (const project of buckets.withMaterials) {
 				this.renderProjectBox(bucket, project, ctx, true);
 			}
@@ -384,7 +385,7 @@ export class GroupPanel {
 			const bucket = body.createDiv({ cls: "pm-group__bucket" });
 			// 小标题恒定出现（用户口径 2026-09-20）：只在多个桶并存时才标类型，
 			// 会让人分不清「这组就是这类」还是「这类恰好没出现」
-			bucket.createDiv({ cls: "pm-group__bucket-label", text: "不带资料的项目" });
+			bucket.createDiv({ cls: "pm-group__bucket-label", text: t("不带资料的项目") });
 			const list = bucket.createEl("ul", { cls: "pm-project-list" });
 			for (const project of buckets.plain) {
 				this.renderProjectRow(list, project, false, ctx);
@@ -393,7 +394,7 @@ export class GroupPanel {
 
 		if (buckets.quick.length > 0) {
 			const bucket = body.createDiv({ cls: "pm-group__bucket" });
-			bucket.createDiv({ cls: "pm-group__bucket-label", text: "快速项目" });
+			bucket.createDiv({ cls: "pm-group__bucket-label", text: t("快速项目") });
 			const list = bucket.createEl("ul", { cls: "pm-project-list" });
 			for (const project of buckets.quick) {
 				this.renderProjectRow(list, project, true, ctx);
@@ -444,7 +445,7 @@ export class GroupPanel {
 			badges.createSpan({
 				cls: "pm-badge pm-badge--warning",
 				text: `⚠️ ${group.projects.length} 个项目文档`,
-				attr: { title: "该文件夹有多个项目笔记，但没有标记 main-project: true" },
+				attr: { title: t("该文件夹有多个项目笔记，但没有标记 main-project: true") },
 			});
 		}
 		if (single !== null) {
@@ -485,7 +486,7 @@ export class GroupPanel {
 		const skipReason = ctx.notOnGantt.get(project.file.path);
 		if (skipReason !== undefined) {
 			card.addClass("pm-card--off-gantt");
-			card.setAttribute("title", GANTT_SKIP_MESSAGES[skipReason]);
+			card.setAttribute("title", ganttSkipMessage(skipReason));
 		}
 
 		const head = card.createDiv({ cls: "pm-card__head" });
@@ -541,7 +542,7 @@ export class GroupPanel {
 			row.createSpan({
 				cls: "pm-project-row__quick",
 				text: "⚡",
-				attr: { title: "快速项目：没有自己的项目文件夹，资料直接放在快速项目文件夹里" },
+				attr: { title: t("快速项目：没有自己的项目文件夹，资料直接放在快速项目文件夹里") },
 			});
 		}
 
@@ -571,7 +572,7 @@ export class GroupPanel {
 	private renderEditButton(host: HTMLElement, project: ProjectItem): void {
 		const button = host.createEl("button", {
 			cls: "pm-edit-btn",
-			text: "编辑",
+			text: t("编辑"),
 			attr: { type: "button", "aria-label": `编辑项目 ${project.file.name}` },
 		});
 		button.dataset.editPath = project.file.path;
@@ -609,11 +610,11 @@ export class GroupPanel {
 		wrap.createDiv({
 			cls: "pm-card__count",
 			text: `📝 ${materials.length} 个资料/笔记`,
-			attr: { title: "该项目文件夹及其子文件夹里的普通笔记（不含项目文档本身）" },
+			attr: { title: t("该项目文件夹及其子文件夹里的普通笔记（不含项目文档本身）") },
 		});
 
 		if (materials.length === 0) {
-			wrap.createDiv({ cls: "pm-card__notes-empty", text: "暂无资料" });
+			wrap.createDiv({ cls: "pm-card__notes-empty", text: t("暂无资料") });
 			return;
 		}
 

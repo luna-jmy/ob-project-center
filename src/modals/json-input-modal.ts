@@ -1,4 +1,5 @@
 import { App, Modal, Setting } from "obsidian";
+import { t } from "../i18n";
 
 /**
  * JSON 文本导入 Modal（设置页的映射表导入用）。
@@ -44,13 +45,13 @@ export class JsonInputModal extends Modal {
 		const actions = contentEl.createDiv({ cls: "pm-modal__actions" });
 		const apply = actions.createEl("button", {
 			cls: "mod-cta",
-			text: "应用",
+			text: t("应用"),
 			attr: { type: "button" },
 		});
 		apply.addEventListener("click", () => this.apply());
 
 		const cancel = actions.createEl("button", {
-			text: "取消",
+			text: t("取消"),
 			attr: { type: "button" },
 		});
 		cancel.addEventListener("click", () => this.close());
@@ -79,17 +80,17 @@ type ParseResult =
 export function parseJsonObject(raw: string): ParseResult {
 	const text = raw.trim();
 	if (text.length === 0) {
-		return { ok: false, message: "内容为空。" };
+		return { ok: false, message: t("内容为空。") };
 	}
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(text);
 	} catch (error) {
 		const reason = error instanceof Error ? error.message : String(error);
-		return { ok: false, message: `JSON 语法错误：${reason}` };
+		return { ok: false, message: t("JSON 语法错误：{reason}", { reason }) };
 	}
 	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-		return { ok: false, message: "需要是一个 JSON 对象（以 { 开头）。" };
+		return { ok: false, message: t("需要是一个 JSON 对象（以 { 开头）。") };
 	}
 	return { ok: true, value: parsed as Record<string, unknown> };
 }

@@ -1,5 +1,6 @@
 import { App, getIconIds, ItemView, normalizePath, Notice, TFile, WorkspaceLeaf } from "obsidian";
-import { buildGanttModel, GANTT_SKIP_MESSAGES, GanttModel } from "../gantt/gantt-model";
+import { buildGanttModel, ganttSkipMessage, GanttModel } from "../gantt/gantt-model";
+import { t } from "../i18n";
 import { exportableRows, exportMermaid, wrapInMarkers } from "../gantt/mermaid-export";
 import { GanttView, ZoomAnchor } from "../gantt/gantt-view";
 import { MermaidTargetModal } from "../modals/mermaid-target-modal";
@@ -30,7 +31,7 @@ import {
 	resolveDateRange,
 	shouldPinLongTerm,
 	sortProjects,
-	STATUS_PRESET_LABELS,
+	statusPresetLabel,
 } from "../services/filter-service";
 import {
 	groupProjects,
@@ -52,19 +53,29 @@ export const VIEW_TYPE_PM_DASHBOARD = "pm-dashboard-view";
 
 /** 时间粒度阶梯：由粗到细，Ctrl +/- 在这条线上走 */
 const ZOOM_LADDER: readonly ZoomMode[] = ["year", "month", "week", "day"];
-const ZOOM_LABELS: Record<ZoomMode, string> = {
-	year: "年",
-	month: "月",
-	week: "周",
-	day: "日",
-};
+/** 粒度显示名（函数求值：常量映射会在 import 时把语言冻住） */
+function zoomLabel(mode: ZoomMode): string {
+	switch (mode) {
+		case "year":
+			return t("年");
+		case "month":
+			return t("月");
+		case "week":
+			return t("周");
+		default:
+			return t("日");
+	}
+}
 
 /** 主区两块（Tab 栏在主区内部，两者同级） */
 type TabId = "gantt" | "mermaid";
 
 /** 只对甘特视图有意义的工具栏控件：面板模式下隐藏（用户口径 2026-09-20） */
 const GANTT_ONLY_CLASS = "pm-toolbar__gantt-only";
-const TAB_LABELS: Record<TabId, string> = { gantt: "甘特图", mermaid: "Mermaid 预览" };
+/** Tab 标题（函数求值，理由同 zoomLabel） */
+function tabLabel(id: TabId): string {
+	return id === "gantt" ? t("甘特图") : t("Mermaid 预览");
+}
 const TAB_IDS: readonly TabId[] = ["gantt", "mermaid"];
 
 
@@ -213,23 +224,23 @@ export class DashboardView extends ItemView {
 
 	private buildToolbar(root: HTMLElement): void {
 		const bar = root.createDiv({ cls: "pm-toolbar" });
-		bar.createEl("h2", { cls: "pm-toolbar__title", text: "项目中心" });
+		bar.createEl("h2", { cls: "pm-toolbar__title", text: t("项目中心") });
 
 		const actions = bar.createDiv({ cls: "pm-toolbar__actions" });
 
-		this.addButton(actions, "新建项目", () => this.openNewProjectModal());
-		this.addButton(actions, "刷新", () => this.refresh());
+		this.addButton(actions, t("新建项目"), () => this.openNewProjectModal());
+		this.addButton(actions, t("刷新"), () => this.refresh());
 
 		const grouping = actions.createEl("select", {
 			cls: "dropdown pm-toolbar__select",
-			attr: { "aria-label": "分组依据" },
+			attr: { "aria-label": t("分组依据") },
 		});
 		for (const [value, label] of [
-			["folder", "按文件夹分组"],
-			["objective", "按目标分组"],
-			["area", "按领域分组"],
+			["folder", t("按文件夹分组")],
+			["objective", t("按目标分组")],
+			["area", t("按领域分组")],
 			// 标签里点明它会分成哪几块：叫「不分组」却出现三块，不说明一句会让人以为坏了
-			["none", "不分组（按资料情况）"],
+			["none", t("不分组（按资料情况）")],
 		] as [GroupingMode, string][]) {
 			grouping.createEl("option", { value, text: label });
 		}
@@ -247,10 +258,13 @@ export class DashboardView extends ItemView {
 		const zoom = actions.createEl("select", {
 			cls: `dropdown pm-toolbar__select ${GANTT_ONLY_CLASS}`,
 			// 快捷键说明放在底部统计行里（那里能一并说明 Ctrl+0 恢复），这里只留无障碍标签
-			attr: { "aria-label": "时间粒度" },
+			attr: { "aria-label": t("时间粒度") },
 		});
 		for (const mode of ZOOM_LADDER) {
-			zoom.createEl("option", { value: mode, text: `${ZOOM_LABELS[mode]}刻度` });
+			zoom.createEl("option", {
+				value: mode,
+				text: t("{unit}刻度", { unit: zoomLabel(mode) }),
+			});
 		}
 		zoom.value = this.zoom;
 		this.zoomSelect = zoom;
@@ -260,27 +274,27 @@ export class DashboardView extends ItemView {
 		});
 
 		// 以下四个只对甘特视图有意义：面板模式下由 CSS 隐藏（用户口径 2026-09-20）
-		this.addButton(actions, "恢复缩放", () => this.resetZoom(), GANTT_ONLY_CLASS);
-		this.addButton(actions, "全部展开", () => this.setAllCollapsed(false), GANTT_ONLY_CLASS);
-		this.addButton(actions, "全部收起", () => this.setAllCollapsed(true), GANTT_ONLY_CLASS);
+		this.addButton(actions, t("恢复缩放"), () => this.resetZoom(), GANTT_ONLY_CLASS);
+		this.addButton(actions, t("全部展开"), () => this.setAllCollapsed(false), GANTT_ONLY_CLASS);
+		this.addButton(actions, t("全部收起"), () => this.setAllCollapsed(true), GANTT_ONLY_CLASS);
 		// 侧栏显隐：名字刻意与「面板模式」区分开——那个是整页卡片视图，不是收放侧栏
 		this.addButton(
 			actions,
-			this.sideCollapsed ? "展开侧栏" : "收起侧栏",
+			this.sideCollapsed ? t("展开侧栏") : t("收起侧栏"),
 			(button) => {
 				this.sideCollapsed = !this.sideCollapsed;
 				this.bodyEl?.toggleClass("pm-body--collapsed", this.sideCollapsed);
-				button.setText(this.sideCollapsed ? "展开侧栏" : "收起侧栏");
+				button.setText(this.sideCollapsed ? t("展开侧栏") : t("收起侧栏"));
 			},
 			GANTT_ONLY_CLASS,
 		);
 		// 「面板模式」是工具栏里最关键的视图切换：独立样式 + 激活态，与普通按钮区分开
 		this.addButton(
 			actions,
-			this.panelMode ? "退出面板模式" : "面板模式",
+			this.panelMode ? t("退出面板模式") : t("面板模式"),
 			(button) => {
 				this.setPanelMode(!this.panelMode);
-				button.setText(this.panelMode ? "退出面板模式" : "面板模式");
+				button.setText(this.panelMode ? t("退出面板模式") : t("面板模式"));
 				button.toggleClass("is-on", this.panelMode);
 			},
 			"pm-btn--panel-toggle",
@@ -393,7 +407,7 @@ export class DashboardView extends ItemView {
 		for (const id of TAB_IDS) {
 			const button = tabbar.createEl("button", {
 				cls: "pm-tab",
-				text: TAB_LABELS[id],
+				text: tabLabel(id),
 				attr: { type: "button", role: "tab" },
 			});
 			this.tabButtons[id] = button;
@@ -583,7 +597,7 @@ export class DashboardView extends ItemView {
 	private describeYearFilter(): string | null {
 		// 文案口径收在 filter-service（「为什么看不见」的提示也用同一份，避免两处措辞走样）
 		const label = describeYearState(this.filterState);
-		return label === "不限" ? null : label;
+		return label === t("不限") ? null : label;
 	}
 
 	// ────────────────────────────── 联动与排序 ──────────────────────────────
@@ -667,9 +681,9 @@ export class DashboardView extends ItemView {
 		 * 长期项目那条顺带指向面板的「编辑」按钮——那是它唯一的界面入口。
 		 * （cancelled 不再有特殊处理：它能不能上甘特图由状态筛选决定。）
 		 */
-		let reason = "该项目缺起止日期，无法在甘特图上定位";
+		let reason = t("该项目缺起止日期，无法在甘特图上定位");
 		if (item !== undefined && item.longTerm) {
-			reason = "该项目标记为长期项目，按设计不上甘特图（可在面板卡片上点「编辑」修改）";
+			reason = t("该项目标记为长期项目，按设计不上甘特图（可在面板卡片上点「编辑」修改）");
 		}
 		new Notice(reason);
 	}
@@ -722,7 +736,7 @@ export class DashboardView extends ItemView {
 	private switchToManualSort(): void {
 		if (this.sortMode === "manual") return;
 		this.sortMode = "manual";
-		new Notice("已切换为「手动排序」");
+		new Notice(t("已切换为「手动排序」"));
 	}
 
 	// ────────────────────────────── 时间粒度 ──────────────────────────────
@@ -801,7 +815,7 @@ export class DashboardView extends ItemView {
 						: `（年度筛选：${yearLabel}）`,
 				attr: {
 					title:
-						"年度筛选按项目的开始/截止日期所在年份严格匹配；没有对应日期的项目不会被计入任何年度。",
+						t("年度筛选按项目的开始/截止日期所在年份严格匹配；没有对应日期的项目不会被计入任何年度。"),
 				},
 			});
 		}
@@ -816,7 +830,7 @@ export class DashboardView extends ItemView {
 			const preset = detectStatusPreset(this.filterState.statuses);
 			// detectStatusPreset 把「自定义子集」也归为 all，这里得自己区分，
 			// 否则会印出「状态档「全部」：另有 N 个未显示」这种自相矛盾的话
-			const label = preset === "all" ? "自定义" : STATUS_PRESET_LABELS[preset];
+			const label = preset === "all" ? t("自定义") : statusPresetLabel(preset);
 			const withoutStatusFilter = applyFilters(
 				this.host.getProjects(),
 				{ ...this.filterState, statuses: allStatuses },
@@ -829,7 +843,7 @@ export class DashboardView extends ItemView {
 					text: `（状态档「${label}」：另有 ${dropped} 个项目因状态未显示）`,
 					attr: {
 						title:
-							"「隐藏已完成」这一档同时还隐藏「取消」与「归档」；把状态档改成「全部」即可看到它们。",
+							t("「隐藏已完成」这一档同时还隐藏「取消」与「归档」；把状态档改成「全部」即可看到它们。"),
 					},
 				});
 			}
@@ -847,15 +861,17 @@ export class DashboardView extends ItemView {
 			if (longTerm !== undefined) parts.push(`长期项目 ${longTerm}`);
 			stats.createSpan({
 				cls: "pm-stats__hint",
-				text: `（未上甘特图：${parts.join("、")}）`,
+				text: t("（未上甘特图：{parts}）", { parts: parts.join("、") }),
 				attr: {
 					title:
-						"「缺日期」需补全起止日期；" +
-						"「长期项目」按设计只出现在面板（它没有确定的时间边界）",
+						t("「缺日期」需补全起止日期；「长期项目」按设计只出现在面板（它没有确定的时间边界）"),
 				},
 			});
 		}
-		stats.createSpan({ cls: "pm-stats__hint", text: `时间粒度：${ZOOM_LABELS[this.zoom]}刻度` });
+		stats.createSpan({
+			cls: "pm-stats__hint",
+			text: t("时间粒度：{unit}刻度", { unit: zoomLabel(this.zoom) }),
+		});
 		stats.createSpan({
 			cls: "pm-stats__hint",
 			text: "Ctrl + / Ctrl - / Ctrl+滚轮 调整",
@@ -968,7 +984,10 @@ export class DashboardView extends ItemView {
 		const skip = this.lastModel?.skipped.find((entry) => entry.item.file.path === path);
 		if (skip !== undefined) {
 			new Notice(
-				`「${item.file.name}」已保存，但甘特图上不会显示它：${GANTT_SKIP_MESSAGES[skip.reason]}`,
+				t("「{name}」已保存，但甘特图上不会显示它：{reason}", {
+					name: item.file.name,
+					reason: ganttSkipMessage(skip.reason),
+				}),
 			);
 		}
 	}
@@ -1044,21 +1063,21 @@ export class DashboardView extends ItemView {
 	private async exportMermaidCode(): Promise<void> {
 		const count = exportableRows(this.lastModel).length;
 		if (count === 0) {
-			new Notice("当前没有展开的项目可导出（折叠的分节不会进导出）。");
+			new Notice(t("当前没有展开的项目可导出（折叠的分节不会进导出）。"));
 			return;
 		}
 		const ok = await copyToClipboard(this.mermaidSource(), this.contentEl.ownerDocument);
 		new Notice(
 			ok
 				? `已复制 Mermaid 代码（${count} 个项目）`
-				: "复制失败：剪贴板不可用，请改用「写入笔记」",
+				: t("复制失败：剪贴板不可用，请改用「写入笔记」"),
 		);
 	}
 
 	/** F1.7「写入笔记」：写入指定笔记的落点标记之间 */
 	private writeToNote(): void {
 		if (exportableRows(this.lastModel).length === 0) {
-			new Notice("当前没有展开的项目可导出（折叠的分节不会进导出）。");
+			new Notice(t("当前没有展开的项目可导出（折叠的分节不会进导出）。"));
 			return;
 		}
 		new MermaidTargetModal(this.host.app, (file) => {

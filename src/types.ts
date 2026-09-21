@@ -7,8 +7,10 @@
  * - 所有业务常量必须可由设置覆盖，禁止散落硬编码。
  */
 
+import { LanguageSetting, t } from "./i18n";
+
 /** 设置结构版本（新增/改动字段时递增，迁移函数见 settings-migration.ts） */
-export const SETTINGS_VERSION = 6;
+export const SETTINGS_VERSION = 7;
 
 /** 规范化项目状态（canonical，机器值全小写英文） */
 export type ProjectStatus =
@@ -31,8 +33,13 @@ export const PROJECT_STATUSES: ProjectStatus[] = [
 	"archived",
 ];
 
-/** status 英文值 → 中文标签（模板 suggester 的展示口径，Modal 下拉用） */
-export const STATUS_LABELS: Readonly<Record<ProjectStatus, string>> = {
+/**
+ * status 英文值 → 展示标签的**原文**（中文即字典键，见 src/i18n/translate.ts）。
+ *
+ * 这里存原文、取用时经 `t()` 出当前语言。**不能写成模块级常量映射**：那会在 import
+ * 时就把当时的语言冻住，用户切语言后界面不跟着变。
+ */
+const STATUS_LABEL_SOURCE: Readonly<Record<ProjectStatus, string>> = {
 	inbox: "未开始/待启动",
 	draft: "起草/构思中",
 	active: "执行中",
@@ -41,6 +48,11 @@ export const STATUS_LABELS: Readonly<Record<ProjectStatus, string>> = {
 	cancelled: "取消",
 	archived: "归档",
 };
+
+/** status 展示标签（模板 suggester 的展示口径，Modal 下拉用） */
+export function statusLabel(status: ProjectStatus): string {
+	return t(STATUS_LABEL_SOURCE[status]);
+}
 
 /** status 徽章 emoji（继承 ref/projectOverview.js statusMap） */
 export const STATUS_EMOJI: Readonly<Record<ProjectStatus, string>> = {
@@ -62,14 +74,20 @@ export const PRIORITY_EMOJI: Readonly<Record<string, string>> = {
 	"5": "⚪",
 };
 
-/** priority 英文值 → 模板中文标签 */
-export const PRIORITY_LABELS: Readonly<Record<string, string>> = {
+/** priority 英文值 → 展示标签的原文（理由同 STATUS_LABEL_SOURCE） */
+const PRIORITY_LABEL_SOURCE: Readonly<Record<string, string>> = {
 	"1": "最高",
 	"2": "高",
 	"3": "中",
 	"4": "低",
 	"5": "最低",
 };
+
+/** priority 展示标签；认不出的值原样返回，不隐藏用户真实写的东西 */
+export function priorityLabel(value: string): string {
+	const source = PRIORITY_LABEL_SOURCE[value];
+	return source === undefined ? value : t(source);
+}
 
 /** status 中文别名 → 规范值（SPEC §2.3，仅在 chineseAliasCompat 开启时生效；可被设置覆盖） */
 export const STATUS_CHINESE_ALIASES: Readonly<Record<string, ProjectStatus>> = {
@@ -147,7 +165,7 @@ export interface SettingFieldCopy {
 	desc: string;
 }
 
-export const FIELD_MAPPING_LABELS: Record<keyof FieldMappingConfig, SettingFieldCopy> = {
+const FIELD_COPY_SOURCE: Record<keyof FieldMappingConfig, SettingFieldCopy> = {
 	type: { label: "项目识别字段", desc: "这个字段的值等于 project 时，笔记会被识别为项目。" },
 	status: { label: "项目状态字段", desc: "未开始 / 起草中 / 执行中 / 暂停 / 完成 / 取消 / 归档。" },
 	priority: {
@@ -182,6 +200,12 @@ export const FIELD_MAPPING_LABELS: Record<keyof FieldMappingConfig, SettingField
 	},
 	identifyTag: { label: "补充识别标签", desc: "笔记的 tags 里含这个标签时也算项目。" },
 };
+
+/** 某个映射字段在设置页上的说法（原文经 `t()` 出当前语言） */
+export function fieldCopy(field: keyof FieldMappingConfig): SettingFieldCopy {
+	const copy = FIELD_COPY_SOURCE[field];
+	return { label: t(copy.label), desc: t(copy.desc) };
+}
 
 export type DateFallbackStrategy = "offset7" | "mark-invalid";
 /**
@@ -322,8 +346,8 @@ export const DEFAULT_GANTT_BAR_COLORS: GanttBarColors = {
 	fallback: "var(--text-muted)",
 };
 
-/** 设置页上这四类颜色的说法 */
-export const GANTT_BAR_COLOR_LABELS: Record<keyof GanttBarColors, SettingFieldCopy> = {
+/** 设置页上这四类颜色的说法（原文；理由同 FIELD_COPY_SOURCE） */
+const BAR_COLOR_COPY_SOURCE: Record<keyof GanttBarColors, SettingFieldCopy> = {
 	active: { label: "进行中", desc: "状态为「执行中」的条子；对应 Mermaid 的 active。" },
 	completed: { label: "已完成", desc: "状态为「完成」的条子；对应 Mermaid 的 done。" },
 	critical: {
@@ -335,6 +359,12 @@ export const GANTT_BAR_COLOR_LABELS: Record<keyof GanttBarColors, SettingFieldCo
 		desc: "未开始 / 起草中 / 暂停 / 取消 / 归档等状态共用这一色。",
 	},
 };
+
+/** 某类甘特条颜色在设置页上的说法（原文经 `t()` 出当前语言） */
+export function barColorCopy(key: keyof GanttBarColors): SettingFieldCopy {
+	const copy = BAR_COLOR_COPY_SOURCE[key];
+	return { label: t(copy.label), desc: t(copy.desc) };
+}
 
 /**
  * 面板卡片文字的缩放区间（百分比）。
@@ -399,6 +429,14 @@ export interface ProjectMasterSettings {
 	 * （样式表侧写成 `calc(倍率 * 主题字号)`，见 styles.css 面板区开头的说明）。
 	 */
 	cardFontScale: number;
+	/**
+	 * 界面语言（用户口径 2026-09-21：加字典、支持英文版）。
+	 *
+	 * `auto` = 跟随 Obsidian 的界面语言；也可以强制 `zh` / `en`。
+	 * 只影响**界面文案**，不影响数据默认值（扫描目录、快速项目标记、资料子文件夹名
+	 * 这些是用户 vault 里的既有约定，不随语言变——否则切一下语言就找不到自己的文件了）。
+	 */
+	uiLanguage: LanguageSetting;
 	/**
 	 * 「资料/笔记」子文件夹名（新建「带文件夹」形态的项目时预建）。
 	 *
@@ -480,6 +518,8 @@ export const DEFAULT_SETTINGS: ProjectMasterSettings = {
 	ganttBarColors: { ...DEFAULT_GANTT_BAR_COLORS },
 	// 100 = 跟随主题默认字号，即「没设置过」时的表现
 	cardFontScale: 100,
+	// auto = 跟随 Obsidian 界面语言（中文用户看到中文，英文用户看到英文）
+	uiLanguage: "auto",
 	materialsFolderName: "资料",
 	// 空串 = 不用模板，行为与「没有这个参数」时一致
 	newProjectTemplate: "",

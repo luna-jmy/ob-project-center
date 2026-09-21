@@ -44,4 +44,16 @@ export default [
 			},
 		},
 	},
+	/*
+	 * 测试里放行 Node 内置模块。
+	 *
+	 * 预设的 `import/no-nodejs-modules` 管的是**会被打进 main.js 的插件代码**——
+	 * Obsidian 的运行时不给插件 Node 模块，所以那条规则对 src 必须保留。
+	 * 而 tests/ 只在开发机上跑（vitest，Node 环境）、从不进产物：字典覆盖用例要读
+	 * 源码做扫描，只能走 node:fs。这里只对 tests 放行，src 的策略一字不改。
+	 */
+	{
+		files: ["tests/**/*.ts"],
+		rules: { "import/no-nodejs-modules": "off" },
+	},
 ];

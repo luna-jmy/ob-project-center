@@ -1,7 +1,8 @@
 import { App, Notice, PluginSettingTab, Setting } from "obsidian";
+import { LanguageSetting, t } from "./i18n";
 import type ProjectMasterPlugin from "./main";
 import { JsonInputModal } from "./modals/json-input-modal";
-import { BAR_COLOR_PRESETS } from "./gantt/bar-colors";
+import { barColorPresets } from "./gantt/bar-colors";
 import { DAY_WIDTH } from "./gantt/time-scale";
 import { nextScheduleYear, sortedScheduleYears } from "./services/holiday-schedule";
 import { statusAliasMap, stringMap } from "./settings-migration";
@@ -10,9 +11,9 @@ import {
 	CARD_FONT_SCALE_RANGE,
 	DEFAULT_FIELD_MAPPING,
 	DEFAULT_GANTT_BAR_COLORS,
-	FIELD_MAPPING_LABELS,
+	fieldCopy,
 	FieldMappingConfig,
-	GANTT_BAR_COLOR_LABELS,
+	barColorCopy,
 	GanttBarColors,
 	GroupingMode,
 	HolidayScheduleMap,
@@ -105,44 +106,42 @@ export class ProjectMasterSettingTab extends PluginSettingTab {
 		return [
 			{
 				id: "global",
-				label: "全局参数",
-				lead: "扫描范围、项目识别方式与缺日期兜底。改这里会触发一次全库重新索引。",
+				label: t("全局参数"),
+				lead: t("扫描范围、项目识别方式与缺日期兜底。改这里会触发一次全库重新索引。"),
 				render: (host) => this.renderGlobalSection(host),
 			},
 			{
 				id: "fields",
-				label: "字段映射",
+				label: t("字段映射"),
 				lead:
-					"项目信息写在 frontmatter 的哪个字段里。左边是「这是什么信息」，" +
-					"右边填「写在哪个字段名里」；换模板只改这张表，不必改插件。留空表示不使用该信息。",
+					t("项目信息写在 frontmatter 的哪个字段里。左边是「这是什么信息」，右边填「写在哪个字段名里」；换模板只改这张表，不必改插件。") +
+					t("留空表示不使用该信息。"),
 				render: (host) => this.renderFieldMappingSection(host),
 			},
 			{
 				id: "enums",
-				label: "枚举与展示",
-				lead: "状态与优先级在界面上的中文名与图标。留空或非法值会被忽略。",
+				label: t("枚举与展示"),
+				lead: t("状态与优先级在界面上的名字与图标。留空或非法值会被忽略。"),
 				render: (host) => this.renderEnumSection(host),
 			},
 			{
 				id: "view",
-				label: "视图偏好",
-				lead: "打开 dashboard 时的初始状态，以及甘特图自身的显示偏好。",
+				label: t("视图偏好"),
+				lead: t("打开 dashboard 时的初始状态，以及甘特图自身的显示偏好。"),
 				render: (host) => this.renderViewSection(host),
 			},
 			{
 				id: "mermaid",
-				label: "Mermaid 导出",
+				label: t("Mermaid 导出"),
 				lead:
-					"导出代码块的格式。临时增删几天假期请用视图主区的 Mermaid 面板；" +
-					"成规模的法定节假日用「法定节假日排期」按年维护。",
+					t("导出代码块的格式。临时增删几天假期请用视图主区的 Mermaid 面板；成规模的法定节假日用「法定节假日排期」按年维护。"),
 				render: (host) => this.renderMermaidSection(host),
 			},
 			{
 				id: "holiday",
-				label: "法定节假日排期",
+				label: t("法定节假日排期"),
 				lead:
-					"按年份维护「放假」与「调休上班」。导出时按甘特图跨到的年份自动套用，" +
-					"不必在视图面板里手打每一天。",
+					t("按年份维护「放假」与「调休上班」。导出时按甘特图跨到的年份自动套用，不必在视图面板里手打每一天。"),
 				render: (host) => this.renderHolidaySection(host),
 			},
 		];
@@ -196,8 +195,8 @@ export class ProjectMasterSettingTab extends PluginSettingTab {
 
 	private renderGlobalSection(host: HTMLElement): void {
 		new Setting(host)
-			.setName("项目扫描目录")
-			.setDesc(`扫描这些目录下的项目笔记。${MULTILINE_HINT}`)
+			.setName(t("项目扫描目录"))
+			.setDesc(t("扫描这些目录下的项目笔记。") + t(MULTILINE_HINT))
 			.addTextArea((area) => {
 				area.setValue(this.plugin.settings.scanFolders.join("\n"));
 				area.inputEl.rows = 3;
@@ -209,14 +208,14 @@ export class ProjectMasterSettingTab extends PluginSettingTab {
 			});
 
 		new Setting(host)
-			.setName("快速项目路径标记")
+			.setName(t("快速项目路径标记"))
 			.setDesc(
-				"路径中出现这个完整文件夹名的文件夹归入「快速项目」分区（按完整路径段匹配，不做子串匹配）。" +
-					"**留空 = 只把扫描目录根层的项目算快速项目**，新建的快速项目也直接放在扫描目录下。",
+				t("路径中出现这个完整文件夹名的文件夹归入「快速项目」分区（按完整路径段匹配，不做子串匹配）。") +
+					t("留空 = 只把扫描目录根层的项目算快速项目，新建的快速项目也直接放在扫描目录下。"),
 			)
 			.addText((text) =>
 				text
-					.setPlaceholder("留空 = 只认扫描目录根层")
+					.setPlaceholder(t("留空 = 只认扫描目录根层"))
 					.setValue(this.plugin.settings.quickProjectMarker)
 					.onChange(async (value) => {
 						/*
@@ -230,9 +229,9 @@ export class ProjectMasterSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(host)
-			.setName("排除目录")
+			.setName(t("排除目录"))
 			.setDesc(
-				`这些目录不参与索引。Obsidian 配置目录会自动并入，无需手写。${MULTILINE_HINT}`,
+				t("这些目录不参与索引。Obsidian 配置目录会自动并入，无需手写。") + t(MULTILINE_HINT),
 			)
 			.addTextArea((area) => {
 				area.setValue(this.plugin.settings.excludedFolders.join("\n"));
@@ -242,15 +241,43 @@ export class ProjectMasterSettingTab extends PluginSettingTab {
 				});
 			});
 
+		/*
+		 * 界面语言（用户口径 2026-09-21）。这一行**从第一版就双语**：它自己就是语言开关，
+		 * 英文用户必须能读懂它，否则连切回英文的路都找不到。
+		 *
+		 * 语言只影响文案、不影响索引，所以走 writeViewOnly（不触发全库重扫）。
+		 * 不调用 `SettingTab.display()` 重渲染设置页——它在 1.13 起被标废弃
+		 * （官方改推 getSettingDefinitions 那套声明式 API，而本页整体还是经典 API），
+		 * 与其为一次重渲染混用两套写法，不如提示用户「重开设置页即跟上」。
+		 */
 		new Setting(host)
-			.setName("资料子文件夹名")
+			.setName(t("界面语言"))
+			.setDesc(t("跟随 Obsidian 的界面语言；也可以在这里强制中文或 English。"))
+			.addDropdown((dropdown) => {
+				dropdown.addOption("auto", t("跟随 Obsidian"));
+				dropdown.addOption("zh", "中文");
+				dropdown.addOption("en", "English");
+				dropdown.setValue(this.plugin.settings.uiLanguage);
+				dropdown.onChange((value) => {
+					void (async () => {
+						await this.writeViewOnly({ uiLanguage: value as LanguageSetting });
+						// 先落设置再应用：applyUiLanguage 读的是 plugin.settings
+						if (this.plugin.applyUiLanguage()) {
+							new Notice(t("界面语言已切换：视图立即生效，设置页重开后全部跟上"));
+						}
+					})();
+				});
+			});
+
+		new Setting(host)
+			.setName(t("资料子文件夹名"))
 			.setDesc(
-				"新建「带文件夹」形态的项目时预建这个子文件夹。**留空表示不建**：" +
-					"资料与项目文档放在同一个文件夹里（资料归集同时收同层与子文件夹里的笔记，留空不影响统计）。",
+				t("新建「带文件夹」形态的项目时预建这个子文件夹。留空表示不建：") +
+					t("资料与项目文档放在同一个文件夹里（资料归集同时收同层与子文件夹里的笔记，留空不影响统计）。"),
 			)
 			.addText((text) =>
 				text
-					.setPlaceholder("留空 = 资料与项目文档同目录")
+					.setPlaceholder(t("留空 = 资料与项目文档同目录"))
 					.setValue(this.plugin.settings.materialsFolderName)
 					.onChange(async (value) => {
 						/*
@@ -263,15 +290,14 @@ export class ProjectMasterSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(host)
-			.setName("新建项目模板")
+			.setName(t("新建项目模板"))
 			.setDesc(
-				"留空 = 与原来一样（只写一行标题）。填模板笔记路径后，新建项目的正文用模板的，" +
-					"模板里缺的字段才由弹窗补上；模板里的 Templater 命令（<% %>）会被执行。" +
-					"路径填 vault 相对路径（如 900 Assets/910 Templates/TPL-Project），扩展名 .md 可省略。",
+				t("留空 = 与原来一样（只写一行标题）。填模板笔记路径后，新建项目的正文用模板的，模板里缺的字段才由弹窗补上；模板里的 Templater 命令（<% %>）会被执行。") +
+					t("路径填 vault 相对路径（如 900 Assets/910 Templates/TPL-Project），扩展名 .md 可省略。"),
 			)
 			.addText((text) =>
 				text
-					.setPlaceholder("例如：templates/TPL-Project.md")
+					.setPlaceholder(t("例如：templates/TPL-Project.md"))
 					.setValue(this.plugin.settings.newProjectTemplate)
 					.onChange(async (value) => {
 						// 逐字符输入的表单：走不重扫索引的写入口（理由同节假日排期）
@@ -280,8 +306,10 @@ export class ProjectMasterSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(host)
-			.setName("兼容中文状态别名")
-			.setDesc("开启后，「执行中」「完成」等模板中文值会被识别为对应状态。历史数据建议保持开启。")
+			.setName(t("兼容中文状态别名"))
+			.setDesc(
+				t("开启后，「执行中」「完成」等模板中文值会被识别为对应状态。历史数据建议保持开启。"),
+			)
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.chineseAliasCompat).onChange(async (value) => {
 					await this.patch({ chineseAliasCompat: value });
@@ -289,12 +317,12 @@ export class ProjectMasterSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(host)
-			.setName("缺日期兜底策略")
-			.setDesc("项目缺起始或截止日期时，甘特图如何处理。")
+			.setName(t("缺日期兜底策略"))
+			.setDesc(t("项目缺起始或截止日期时，甘特图如何处理。"))
 			.addDropdown((dropdown) =>
 				dropdown
-					.addOption("offset7", "按天数推导（与现有脚本一致）")
-					.addOption("mark-invalid", "不推导，不上甘特图并提示修复")
+					.addOption("offset7", t("按天数推导（与现有脚本一致）"))
+					.addOption("mark-invalid", t("不推导，不上甘特图并提示修复"))
 					.setValue(this.plugin.settings.dateFallback)
 					.onChange(async (value) => {
 						await this.patch({
@@ -304,8 +332,8 @@ export class ProjectMasterSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(host)
-			.setName("兜底天数")
-			.setDesc("仅在「按天数推导」策略下生效（现有脚本硬编码为 7 天）。")
+			.setName(t("兜底天数"))
+			.setDesc(t("仅在「按天数推导」策略下生效（现有脚本硬编码为 7 天）。"))
 			.addText((text) => {
 				text.inputEl.type = "number";
 				text.inputEl.min = "1";
@@ -331,10 +359,15 @@ export class ProjectMasterSettingTab extends PluginSettingTab {
 			 * 现在标题是人话含义，默认字段名放在说明与 placeholder 里，
 			 * 想换成自己的模板就照着改右边这一格。
 			 */
-			const meta = FIELD_MAPPING_LABELS[logicalKey];
+			const meta = fieldCopy(logicalKey);
 			new Setting(host)
 				.setName(meta.label)
-				.setDesc(`${meta.desc}（默认：${DEFAULT_FIELD_MAPPING[logicalKey]}；留空表示不使用）`)
+				.setDesc(
+					meta.desc +
+						t("（默认：{field}；留空表示不使用）", {
+							field: DEFAULT_FIELD_MAPPING[logicalKey],
+						}),
+				)
 				.addText((text) =>
 					text
 						.setValue(this.plugin.settings.fieldMapping[logicalKey])
@@ -350,21 +383,21 @@ export class ProjectMasterSettingTab extends PluginSettingTab {
 		}
 
 		new Setting(host)
-			.setName("导入 / 导出映射表")
-			.setDesc("导出为 JSON 便于在多 vault 或换模板时复用；导入内容会先过一遍清洗。")
+			.setName(t("导入 / 导出映射表"))
+			.setDesc(t("导出为 JSON 便于在多 vault 或换模板时复用；导入内容会先过一遍清洗。"))
 			.addButton((button) =>
-				button.setButtonText("导出").onClick(async () => {
+				button.setButtonText(t("导出")).onClick(async () => {
 					const json = JSON.stringify(this.plugin.settings.fieldMapping, null, 2);
 					const ok = await copyToClipboard(json, this.containerEl.ownerDocument);
-					new Notice(ok ? "映射表 JSON 已复制到剪贴板" : "复制失败：剪贴板不可用");
+					new Notice(ok ? t("映射表 JSON 已复制到剪贴板") : t("复制失败：剪贴板不可用"));
 				}),
 			)
 			.addButton((button) =>
-				button.setButtonText("导入").onClick(() => {
+				button.setButtonText(t("导入")).onClick(() => {
 					new JsonInputModal(
 						this.app,
-						"导入字段映射表",
-						"粘贴字段映射 JSON（逻辑字段名 → 物理字段名）。",
+						t("导入字段映射表"),
+						t("粘贴字段映射 JSON（逻辑字段名 → 物理字段名）。"),
 						(values) => {
 							const imported = stringMap(values) ?? {};
 							void this.patch({
@@ -378,7 +411,7 @@ export class ProjectMasterSettingTab extends PluginSettingTab {
 				}),
 			)
 			.addButton((button) =>
-				button.setButtonText("恢复默认").onClick(async () => {
+				button.setButtonText(t("恢复默认")).onClick(async () => {
 					await this.patch({ fieldMapping: { ...DEFAULT_FIELD_MAPPING } });
 					this.render();
 				}),
@@ -390,8 +423,8 @@ export class ProjectMasterSettingTab extends PluginSettingTab {
 	private renderEnumSection(host: HTMLElement): void {
 		this.renderJsonMapSetting(
 			host,
-			"状态中文别名映射",
-			"中文写法 → 规范状态值。仅在「兼容中文状态别名」开启时生效；指向未知状态的项会被丢弃。",
+			t("状态中文别名映射"),
+			t("中文写法 → 规范状态值。仅在「兼容中文状态别名」开启时生效；指向未知状态的项会被丢弃。"),
 			() => this.plugin.settings.statusAliases,
 			async (values) => {
 				const cleaned = statusAliasMap(values);
@@ -401,8 +434,8 @@ export class ProjectMasterSettingTab extends PluginSettingTab {
 
 		this.renderJsonMapSetting(
 			host,
-			"状态 emoji",
-			"规范状态值 → 徽章 emoji。",
+			t("状态 emoji"),
+			t("规范状态值 → 徽章 emoji。"),
 			() => this.plugin.settings.statusEmoji,
 			async (values) => {
 				await this.patch({ statusEmoji: stringMap(values) ?? {} });
@@ -411,8 +444,8 @@ export class ProjectMasterSettingTab extends PluginSettingTab {
 
 		this.renderJsonMapSetting(
 			host,
-			"优先级 emoji",
-			"优先级值（1–5）→ 徽章 emoji。",
+			t("优先级 emoji"),
+			t("优先级值（1–5）→ 徽章 emoji。"),
 			() => this.plugin.settings.priorityEmoji,
 			async (values) => {
 				await this.patch({ priorityEmoji: stringMap(values) ?? {} });
@@ -420,9 +453,11 @@ export class ProjectMasterSettingTab extends PluginSettingTab {
 		);
 
 		new Setting(host)
-			.setName("状态选择顺序")
+			.setName(t("状态选择顺序"))
 			.setDesc(
-				`编辑 Modal 下拉与筛选 chips 的展示顺序，逗号分隔。合法值：${PROJECT_STATUSES.join(", ")}`,
+				t("编辑 Modal 下拉与筛选 chips 的展示顺序，逗号分隔。合法值：{values}", {
+					values: PROJECT_STATUSES.join(", "),
+				}),
 			)
 			.addText((text) =>
 				text
@@ -444,7 +479,7 @@ export class ProjectMasterSettingTab extends PluginSettingTab {
 	): void {
 		new Setting(host)
 			.setName(name)
-			.setDesc(`${desc}（JSON 对象，改动后自动保存）`)
+			.setDesc(desc + t("（JSON 对象，改动后自动保存）"))
 			.addTextArea((area) => {
 				area.setValue(JSON.stringify(read(), null, 2));
 				area.inputEl.rows = 6;
@@ -460,23 +495,23 @@ export class ProjectMasterSettingTab extends PluginSettingTab {
 	// ────────────────────────── 4. 视图偏好 ──────────────────────────
 
 	private renderViewSection(host: HTMLElement): void {
-		new Setting(host).setName("默认分组依据").addDropdown((dropdown) =>
+		new Setting(host).setName(t("默认分组依据")).addDropdown((dropdown) =>
 			dropdown
-				.addOption("folder", "按文件夹")
-				.addOption("objective", "按目标")
-				.addOption("area", "按领域")
-				.addOption("none", "不分组（按是否有资料）")
+				.addOption("folder", t("按文件夹"))
+				.addOption("objective", t("按目标"))
+				.addOption("area", t("按领域"))
+				.addOption("none", t("不分组（按是否有资料）"))
 				.setValue(this.plugin.settings.defaultGrouping)
 				.onChange(async (value) => {
 					await this.patch({ defaultGrouping: value as GroupingMode });
 				}),
 		);
 
-		new Setting(host).setName("默认排序").addDropdown((dropdown) =>
+		new Setting(host).setName(t("默认排序")).addDropdown((dropdown) =>
 			dropdown
-				.addOption("due-asc", "截止日升序")
-				.addOption("name", "项目名")
-				.addOption("priority", "优先级")
+				.addOption("due-asc", t("截止日升序"))
+				.addOption("name", t("项目名"))
+				.addOption("priority", t("优先级"))
 				.setValue(this.plugin.settings.defaultSort)
 				.onChange(async (value) => {
 					await this.patch({ defaultSort: value as SortMode });
@@ -484,16 +519,20 @@ export class ProjectMasterSettingTab extends PluginSettingTab {
 		);
 
 		new Setting(host)
-			.setName("默认缩放")
+			.setName(t("默认缩放"))
 			.setDesc(
-				`各档位的每日像素宽度：日 ${DAY_WIDTH.day}px / 周 ${DAY_WIDTH.week}px / 月 ${DAY_WIDTH.month}px`,
+				t("各档位的每日像素宽度：日 {day}px / 周 {week}px / 月 {month}px", {
+					day: DAY_WIDTH.day,
+					week: DAY_WIDTH.week,
+					month: DAY_WIDTH.month,
+				}),
 			)
 			.addDropdown((dropdown) =>
 				dropdown
-					.addOption("day", "日")
-					.addOption("week", "周")
-					.addOption("month", "月")
-					.addOption("year", "年（一屏看全年）")
+					.addOption("day", t("日"))
+					.addOption("week", t("周"))
+					.addOption("month", t("月"))
+					.addOption("year", t("年（一屏看全年）"))
 					.setValue(this.plugin.settings.defaultZoom)
 					.onChange(async (value) => {
 						await this.patch({ defaultZoom: value as ZoomMode });
@@ -501,14 +540,14 @@ export class ProjectMasterSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(host)
-			.setName("默认年度筛选")
+			.setName(t("默认年度筛选"))
 			.setDesc(
-				"打开视图时「项目开始年度」的默认值。默认只显示本年度启动的项目；改为「不限年度」可一进来就看到全部项目。",
+				t("打开视图时「项目开始年度」的默认值。默认只显示本年度启动的项目；改为「不限年度」可一进来就看到全部项目。"),
 			)
 			.addDropdown((dropdown) =>
 				dropdown
-					.addOption("current", "只看本年度启动的项目")
-					.addOption("none", "不限年度（显示全部年份）")
+					.addOption("current", t("只看本年度启动的项目"))
+					.addOption("none", t("不限年度（显示全部年份）"))
 					.setValue(this.plugin.settings.defaultYearFilter)
 					.onChange(async (value) => {
 						await this.patch({
@@ -518,8 +557,8 @@ export class ProjectMasterSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(host)
-			.setName("每项目笔记预览条数")
-			.setDesc("分组卡片里最多显示几条组内笔记；0 表示不限（现有笔记数上限行为）。")
+			.setName(t("每项目笔记预览条数"))
+			.setDesc(t("分组卡片里最多显示几条组内笔记；0 表示不限（现有笔记数上限行为）。"))
 			.addText((text) => {
 				text.inputEl.type = "number";
 				text.inputEl.min = "0";
@@ -532,10 +571,13 @@ export class ProjectMasterSettingTab extends PluginSettingTab {
 			});
 
 		new Setting(host)
-			.setName("面板文字大小")
+			.setName(t("面板文字大小"))
 			.setDesc(
-				"百分比，100 = 跟随主题默认。只缩放面板卡片里的文字（标题 / 正文 / 注释的层级比例不变），" +
-					`可填 ${CARD_FONT_SCALE_RANGE.min}–${CARD_FONT_SCALE_RANGE.max}。`,
+				t("百分比，100 = 跟随主题默认。只缩放面板卡片里的文字（标题 / 正文 / 注释的层级比例不变），") +
+					t("可填 {min}–{max}。", {
+						min: CARD_FONT_SCALE_RANGE.min,
+						max: CARD_FONT_SCALE_RANGE.max,
+					}),
 			)
 			.addText((text) => {
 				text.inputEl.type = "number";
@@ -553,29 +595,28 @@ export class ProjectMasterSettingTab extends PluginSettingTab {
 			});
 
 		new Setting(host)
-			.setName("手动排序记录")
+			.setName(t("手动排序记录"))
 			.setDesc(
-				"面板上拖动分组/项目会记在这里（只有排序档为「手动排序」时生效）。项目改名或删除后可能残留无效项，可一键清空。",
+				t("面板上拖动分组/项目会记在这里（只有排序档为「手动排序」时生效）。项目改名或删除后可能残留无效项，可一键清空。"),
 			)
 			.addButton((button) =>
-				button.setButtonText("清空").onClick(async () => {
+				button.setButtonText(t("清空")).onClick(async () => {
 					await this.patch({ manualGroupOrder: {}, manualProjectOrder: {} });
-					new Notice("已清空手动排序记录");
+					new Notice(t("已清空手动排序记录"));
 				}),
 			);
 
 		new Setting(host)
-			.setName("条上显示天数")
+			.setName(t("条上显示天数"))
 			.setDesc(
-				"在甘特条上标出天数。「工作日」= 自然日 − 周末（需在 Mermaid 标签页打开「排除周末」）" +
-					"− 法定节假日排期 + 补班日；与导出 mermaid 的 excludes/includes 是同一份口径。" +
-					"条子太窄放不下时会挪到条子右侧显示。",
+				t("在甘特条上标出天数。「工作日」= 自然日 − 周末（需在 Mermaid 标签页打开「排除周末」）− 法定节假日排期 + 补班日；与导出 mermaid 的 excludes/includes 是同一份口径。") +
+					t("条子太窄放不下时会挪到条子右侧显示。"),
 			)
 			.addDropdown((dropdown) =>
 				dropdown
-					.addOption("off", "不显示")
-					.addOption("calendar", "自然日（含首尾）")
-					.addOption("workday", "工作日")
+					.addOption("off", t("不显示"))
+					.addOption("calendar", t("自然日（含首尾）"))
+					.addOption("workday", t("工作日"))
 					.setValue(this.plugin.settings.ganttBarDuration)
 					.onChange(async (value) => {
 						await this.patch({ ganttBarDuration: value as BarDurationMode });
@@ -584,10 +625,10 @@ export class ProjectMasterSettingTab extends PluginSettingTab {
 
 		// 甘特条配色：只给「Mermaid 里颜色会变」的几类（用户口径 2026-09-20）
 		new Setting(host)
-			.setName("甘特条配色")
+			.setName(t("甘特条配色"))
 			.setDesc(
-				"只给「Mermaid 里颜色会变」的几类预设颜色，其余状态共用「其他状态」。" +
-					"颜色可写 #3b82f6、var(--color-blue) 或颜色名；点下面的色块即改。",
+				t("只给「Mermaid 里颜色会变」的几类预设颜色，其余状态共用「其他状态」。") +
+					t("颜色可写 #3b82f6、var(--color-blue) 或颜色名；点下面的色块即改。"),
 			);
 		for (const key of Object.keys(DEFAULT_GANTT_BAR_COLORS) as (keyof GanttBarColors)[]) {
 			this.renderBarColorSetting(host, key);
@@ -601,7 +642,7 @@ export class ProjectMasterSettingTab extends PluginSettingTab {
 	 * 不经过自定义属性中转），取值都是主题色变量，明暗主题自动适配。
 	 */
 	private renderBarColorSetting(host: HTMLElement, key: keyof GanttBarColors): void {
-		const meta = GANTT_BAR_COLOR_LABELS[key];
+		const meta = barColorCopy(key);
 		const current = this.plugin.settings.ganttBarColors[key];
 
 		new Setting(host)
@@ -620,7 +661,7 @@ export class ProjectMasterSettingTab extends PluginSettingTab {
 			);
 
 		const swatches = host.createDiv({ cls: "pm-color-presets" });
-		for (const preset of BAR_COLOR_PRESETS) {
+		for (const preset of barColorPresets()) {
 			// 「默认（按状态）」这一档在这里没有意义：四类颜色各自都有默认值
 			if (preset.value === null) continue;
 			const swatch = swatches.createEl("button", {
@@ -655,8 +696,8 @@ export class ProjectMasterSettingTab extends PluginSettingTab {
 	 */
 	private renderMermaidSection(host: HTMLElement): void {
 		new Setting(host)
-			.setName("Mermaid 标题")
-			.setDesc("导出代码块里的 title 行（现有脚本为「项目进度甘特图」）。")
+			.setName(t("Mermaid 标题"))
+			.setDesc(t("导出代码块里的 title 行（现有脚本为「项目进度甘特图」）。"))
 			.addText((text) =>
 				text.setValue(this.plugin.settings.mermaidTitle).onChange(async (value) => {
 					const trimmed = value.trim();
@@ -666,8 +707,8 @@ export class ProjectMasterSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(host)
-			.setName("Mermaid 无目标分节名")
-			.setDesc("项目没有 objective 时落入的分节名（现有脚本为「默认项目」）。")
+			.setName(t("Mermaid 无目标分节名"))
+			.setDesc(t("项目没有 objective 时落入的分节名（现有脚本为「默认项目」）。"))
 			.addText((text) =>
 				text
 					.setValue(this.plugin.settings.mermaidSectionFallback)
@@ -679,9 +720,9 @@ export class ProjectMasterSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(host)
-			.setName("导出落点标记（开始 / 结束）")
+			.setName(t("导出落点标记（开始 / 结束）"))
 			.setDesc(
-				"「导出到笔记」会替换这两个标记之间的内容。默认复用 gantt-builder 的占位块；标记缺失时插件会报错且不改动笔记。",
+				t("「导出到笔记」会替换这两个标记之间的内容。默认复用 gantt-builder 的占位块；标记缺失时插件会报错且不改动笔记。"),
 			)
 			.addText((text) =>
 				text.setValue(this.plugin.settings.mermaidMarkerStart).onChange(async (value) => {
@@ -713,8 +754,8 @@ export class ProjectMasterSettingTab extends PluginSettingTab {
 		const years = sortedScheduleYears(schedules);
 		if (years.length === 0) {
 			new Setting(host)
-				.setName("还没有排期")
-				.setDesc("点下面的按钮添加一个年度，之后按国务院公告填区间即可。");
+				.setName(t("还没有排期"))
+				.setDesc(t("点下面的按钮添加一个年度，之后按国务院公告填区间即可。"));
 		}
 
 		for (const year of years) {
@@ -724,8 +765,10 @@ export class ProjectMasterSettingTab extends PluginSettingTab {
 			};
 
 			new Setting(host)
-				.setName(`${year} · 放假`)
-				.setDesc("区间写成 10-01~10-07（`~`/`至` 都认）；跨年区间如 12-30~01-02 自动算到次年。")
+				.setName(t("{year} · 放假", { year }))
+				.setDesc(
+					t("区间写成 10-01~10-07（`~`/`至` 都认）；跨年区间如 12-30~01-02 自动算到次年。"),
+				)
 				.addText((text) =>
 					text
 						.setPlaceholder("10-01~10-07, 01-01~01-03")
@@ -737,7 +780,7 @@ export class ProjectMasterSettingTab extends PluginSettingTab {
 				.addExtraButton((button) =>
 					button
 						.setIcon("trash")
-						.setTooltip("删除该年度排期")
+						.setTooltip(t("删除该年度排期"))
 						.onClick(async () => {
 							const next: HolidayScheduleMap = { ...schedules };
 							delete next[year];
@@ -747,9 +790,9 @@ export class ProjectMasterSettingTab extends PluginSettingTab {
 				);
 
 			new Setting(host)
-				.setName(`${year} · 调休上班`)
+				.setName(t("{year} · 调休上班", { year }))
 				.setDesc(
-					"这些日子强制算工作日（优先级高于放假），用于把「周六但要上班」从灰色非工作日里捞回来。",
+					t("这些日子强制算工作日（优先级高于放假），用于把「周六但要上班」从灰色非工作日里捞回来。"),
 				)
 				.addText((text) =>
 					text
@@ -762,10 +805,10 @@ export class ProjectMasterSettingTab extends PluginSettingTab {
 		}
 
 		new Setting(host)
-			.setName("新增年度")
-			.setDesc("每年公告出来后，添一个年度再填区间即可。")
+			.setName(t("新增年度"))
+			.setDesc(t("每年公告出来后，添一个年度再填区间即可。"))
 			.addButton((button) =>
-				button.setButtonText("添加年份").onClick(async () => {
+				button.setButtonText(t("添加年份")).onClick(async () => {
 					const year = nextScheduleYear(schedules);
 					await this.writeSchedules({
 						...schedules,

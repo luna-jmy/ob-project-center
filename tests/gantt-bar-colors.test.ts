@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { barFillKey, isCriticalPriority, showsProgress } from "../src/gantt/bar-colors";
 import { isColorLike } from "../src/services/normalize";
 import { migrateSettings } from "../src/settings-migration";
-import { DEFAULT_GANTT_BAR_COLORS, DEFAULT_SETTINGS, GANTT_BAR_COLOR_LABELS } from "../src/types";
+import { barColorCopy, DEFAULT_GANTT_BAR_COLORS, DEFAULT_SETTINGS } from "../src/types";
 
 /** 四类配色的键（显式列出来：Object.values 在这套 lib 里是 any，过不了 lint 的类型感知规则） */
 const TONES = ["active", "completed", "critical", "fallback"] as const;
@@ -97,12 +97,11 @@ describe("甘特条配色 — 默认值与设置页文案", () => {
 	});
 
 	it("carries a label and description for every tone", () => {
-		expect(Object.keys(GANTT_BAR_COLOR_LABELS).sort()).toEqual(
-			Object.keys(DEFAULT_GANTT_BAR_COLORS).sort(),
-		);
-		for (const copy of Object.values(GANTT_BAR_COLOR_LABELS)) {
-			expect(copy.label.length).toBeGreaterThan(0);
-			expect(copy.desc.length).toBeGreaterThan(0);
+		// 覆盖性由类型保证；这里守住每个色调都真能取到非空文案
+		for (const tone of Object.keys(DEFAULT_GANTT_BAR_COLORS) as (keyof typeof DEFAULT_GANTT_BAR_COLORS)[]) {
+			const copy = barColorCopy(tone);
+			expect(copy.label.length, tone).toBeGreaterThan(0);
+			expect(copy.desc.length, tone).toBeGreaterThan(0);
 		}
 	});
 });

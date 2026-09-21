@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { resolveNonWorkingDays } from "../services/holiday-schedule";
 import {
 	BarDurationMode,
@@ -58,10 +59,15 @@ export type GanttSkipReason = "no-dates" | "long-term";
  * 要不要显示取消的项目，由状态筛选决定（筛选里本来就有「取消」这个可选项）。
  * 同一件事留两个开关，结果就是用户把项目改成取消后它从图上消失，还找不到原因。
  */
-export const GANTT_SKIP_MESSAGES: Readonly<Record<GanttSkipReason, string>> = {
+const SKIP_MESSAGE_SOURCE: Readonly<Record<GanttSkipReason, string>> = {
 	"long-term": "它标记为长期项目，按设计不上甘特图（面板里照常显示）",
 	"no-dates": "它没有起止日期，甘特图上无法定位（补上日期即可）",
 };
+
+/** 跳过原因 → 人话（函数求值，理由同类型层那些 SOURCE 表） */
+export function ganttSkipMessage(reason: GanttSkipReason): string {
+	return t(SKIP_MESSAGE_SOURCE[reason]);
+}
 
 export interface GanttModel {
 	sections: GanttSection[];
