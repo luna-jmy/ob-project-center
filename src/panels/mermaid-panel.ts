@@ -1,4 +1,10 @@
-import { App, Component, MarkdownRenderer } from "obsidian";
+import { App, Component, MarkdownRenderer, Notice } from "obsidian";
+import {
+	MermaidImageExport,
+	resolveExportBackground,
+	serializePreviewSvg,
+	svgToJpegBlob,
+} from "./svg-image";
 
 /**
  * Mermaid 预览（用户口径 2026-09-20 二次修订）—— 主区第二个 Tab，结构极简：
@@ -12,7 +18,12 @@ import { App, Component, MarkdownRenderer } from "obsidian";
  *
  * ── 其余口径 ────────────────────────────────────────────────────────
  * - 选项用按钮控制（chip 开关 + 一个日期输入），改完立刻重算预览并存设置；
- * - 只要一个「导出代码」按钮。
+ * - 四个出口：导出代码（剪贴板）、写入笔记（落标记块）、导出 SVG / 导出 JPG
+ *   （图片文件，用户口径 2026-09-21）。
+ *
+ * 图片出口只做「取出图」，不碰 vault：面板从预览 DOM 里序列化 svg、
+ * 必要时光栅化成 JPEG，载荷交给视图写盘（落点与命名是设置/vault 的事，
+ * 见 svg-image.ts 与 dashboard-view 的 exportMermaidImage）。
  */
 
 export interface MermaidOptions {
@@ -34,6 +45,11 @@ export interface MermaidPanelHost {
 	onExportCode(): void;
 	/** 写入笔记：落到指定笔记的标记块之间（F1.7） */
 	onWriteToNote(): void;
+	/**
+	 * 导出图片：面板已把预览里的 svg 取出（svg = 文本 / jpg = 二进制），
+	 * 落点与文件名由视图决定并写盘。
+	 */
+	onExportImage(payload: MermaidImageExport): void;
 }
 
 type ToggleKey = "todayMarker" | "excludeWeekends";
@@ -77,6 +93,20 @@ const DATE_FIELDS: {
 		hint:
 			"临时补充的调休补班日。写法同上；这些日子强制算工作日（优先级高于排除），" +
 			"用于把「周六但要上班」从灰色里捞回来。\n年度排期里的补班日会自动套用，这里只填例外。",
+	},
+];
+
+/** 图片出口（用户口径 2026-09-21）：文案与提示写在一处，将来加格式只改这张表 */
+const IMAGE_EXPORTS: { format: "svg" | "jpg"; label: string; hint: string }[] = [
+	{
+		format: "svg",
+		label: "导出 SVG",
+		hint: "把预览里的图存成矢量图（.svg）：放大不糊，也能再拿去别的工具里改",
+	},
+	{
+		format: "jpg",
+		label: "导出 JPG",
+		hint: "把预览里的图存成位图（.jpg，2 倍分辨率、底色跟随主题）：适合贴进聊天或文档",
 	},
 ];
 
@@ -175,7 +205,50 @@ export class MermaidPanel {
 		});
 		this.component.registerDomEvent(writeButton, "click", () => this.deps.onWriteToNote());
 
+		/*
+		 * 图片出口（用户口径 2026-09-21）：把预览里那张图直接存成文件。
+		 * SVG 给「要接着改 / 要无限放大」的场合，JPG 给「贴进聊天、文档」的场合。
+		 */
+		for (const spec of IMAGE_EXPORTS) {
+			const button = actions.createEl("button", {
+				cls: "pm-btn",
+				text: spec.label,
+				attr: { type: "button", title: spec.hint },
+			});
+			this.component.registerDomEvent(button, "click", () => void this.exportImage(spec.format));
+		}
+
 		this.previewEl = this.host.createDiv({ cls: "pm-mermaid__preview" });
+	}
+
+	/**
+	 * 导出预览里的图。
+	 *
+	 * 图是从**当前渲染出来的 svg** 上取的，不重新跑一遍 mermaid：导出的就是眼前这张
+	 * （含今天线、排除周末等选项的效果）。取不到就明说，不静默失败——预览还没渲染完
+	 * 就点按钮是最常见的一种操作。
+	 */
+	private async exportImage(format: "svg" | "jpg"): Promise<void> {
+		const svg = this.previewEl?.querySelector<SVGSVGElement>("svg") ?? null;
+		if (svg === null) {
+			new Notice("预览里还没有可导出的图，等它渲染完再点一次");
+			return;
+		}
+		try {
+			const serialized = serializePreviewSvg(svg);
+			if (format === "svg") {
+				this.deps.onExportImage({ format, data: serialized.text });
+				return;
+			}
+			const blob = await svgToJpegBlob(this.host.ownerDocument, serialized.text, {
+				width: serialized.width,
+				height: serialized.height,
+				background: resolveExportBackground(svg),
+			});
+			this.deps.onExportImage({ format, data: await blob.arrayBuffer() });
+		} catch (error) {
+			new Notice(`导出图片失败：${describeError(error)}`);
+		}
 	}
 
 	/**

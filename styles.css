@@ -110,6 +110,24 @@
 	gap: var(--size-4-2);
 }
 
+/*
+ * 「不分组」的扁平列表用更小的格子（用户口径 2026-09-21）。
+ *
+ * 两种列表共用上面的 340px 是错的：分组模式的一格是**一整组**（里面可能好几个项目），
+ * 不分组模式的一格就是**一张项目卡片**——同样 340px 会在宽屏上一行只放两三张、
+ * 右边空一大片。
+ *
+ * 必须排在 `.pm-panel-mode .pm-group-list` **之后**：两条规则特异性相同（都是两个类），
+ * 靠先后顺序覆盖，写到前面就不会生效。
+ * （原先这里还有一条挂在 `.pm-card-grid` 上的同名规则，那个类全项目零引用、
+ *   永远不会作用到任何节点——「改了没生效」最容易踩的就是这种坑，已删除。）
+ */
+.pm-panel-mode .pm-group-list--flat {
+	grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+	/* 卡片也矮一点：格子窄了还留 260px 的固定行高，每张卡片会显得又窄又空 */
+	grid-auto-rows: clamp(200px, 34vh, 400px);
+}
+
 .pm-panel-mode .pm-group {
 	display: flex;
 	flex-direction: column;
@@ -362,7 +380,7 @@
 	cursor: help;
 }
 
-/* 两个出口按钮靠右成组 */
+/* 出口按钮靠右成组（导出代码 / 写入笔记 / 导出 SVG / 导出 JPG；窄了就换行，见 __bar 的 wrap） */
 .pm-mermaid__actions {
 	display: flex;
 	align-items: center;
@@ -676,12 +694,6 @@
 	font-weight: var(--font-semibold);
 	color: var(--text-normal);
 	border-bottom: 1px solid var(--background-modifier-border);
-}
-
-.pm-card-grid {
-	display: grid;
-	grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-	gap: var(--size-4-2);
 }
 
 .pm-card {

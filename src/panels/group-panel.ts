@@ -1,6 +1,6 @@
 import { Component } from "obsidian";
 import { GANTT_SKIP_MESSAGES, GanttSkipReason } from "../gantt/gantt-model";
-import { DragReorder, DragReorderCommit } from "./drag-reorder";
+import { childKeys, DragReorder, DragReorderCommit } from "./drag-reorder";
 import {
 	GroupingResult,
 	NormalGroup,
@@ -44,12 +44,23 @@ export interface GroupPanelCallbacks {
 	 */
 	onEditProject(path: string): void;
 	/**
-	 * 面板模式下拖动卡片 → 新的路径顺序。
+	 * 面板模式下拖动卡片 → 新的路径顺序（**不分组时**，卡片就是被拖动的单位）。
 	 *
 	 * 落盘复用甘特侧栏的同一套手动排序（manualProjectOrder），key 由容器上的
 	 * `data-group-key` 给出；真正写设置与切换排序档在视图层完成。
 	 */
 	onReorderProjects(groupKey: string, paths: string[]): void;
+	/**
+	 * 面板模式下拖动**分组** → 新的分组 key 顺序（**分组时**，被拖动的单位是分组本身）。
+	 *
+	 * 分组模式下拖组内卡片没有意义（文件夹模式一组常常只有一个项目，
+	 * 就是一张卡片），真正能排的是「哪个分组在前」——与甘特侧栏拖分节是同一件事，
+	 * 落盘也走同一份 manualGroupOrder（用户口径 2026-09-21）。
+	 *
+	 * 传的是**完整** key 顺序：面板把「快速分区 + 普通分组」两个列表按屏幕顺序拼起来，
+	 * 与甘特分节那边一致（manualGroupOrder 的 key 空间本来就是这两者共用）。
+	 */
+	onReorderGroups(keys: string[]): void;
 }
 
 export interface GroupPanelRenderOptions {
@@ -67,7 +78,7 @@ export interface GroupPanelRenderOptions {
 	canLocateInGantt: boolean;
 	/**
 	 * 面板模式（甘特被整页顶掉的整页卡片视图）。
-	 * 只有这个模式下卡片才挂拖动手柄——顺序调整从甘特侧栏挪到了卡片本身。
+	 * 只有这个模式下才挂拖动手柄——顺序调整从甘特侧栏挪到了面板自己身上。
 	 */
 	panelMode: boolean;
 	/**
@@ -106,13 +117,17 @@ export class GroupPanel {
 		this.host.addClass("pm-group-panel");
 		this.registerInteraction();
 		/*
-		 * 卡片拖动（仅面板模式会渲染手柄）：监听器注册一次，靠 data-* 委托分发。
-		 * 落盘走 onReorderProjects → 视图层的 reorderProjects（与甘特侧栏同一套手动排序）。
+		 * 拖动排序（仅面板模式会渲染手柄）：监听器注册一次，靠 data-* 委托分发。
+		 *
+		 * `itemSelector` 给两项是有意的：**不分组时拖卡片、分组时拖分组**（用户口径 2026-09-21）。
+		 * `closest` 取最近的匹配祖先，所以判别不是靠选择器算术，而是靠手柄挂在哪：
+		 * 卡片上的手柄 → 卡片；分组头上的手柄 → 整个分组。
+		 * 落盘分别走 onReorderProjects（组内项目）与 onReorderGroups（分组顺序）。
 		 */
 		this.dragReorder = new DragReorder(component, this.host, {
-			itemSelector: ".pm-card[data-key]",
+			itemSelector: ".pm-card[data-key], .pm-group[data-key]",
 			handleSelector: "[data-drag-handle]",
-			onCommit: (commit) => this.commitCardOrder(commit),
+			onCommit: (commit) => this.commitDragOrder(commit),
 		});
 	}
 
@@ -194,22 +209,57 @@ export class GroupPanel {
 		button?.setText(expanded ? "收起" : (button.getAttribute("data-collapsed-label") ?? "展开全部"));
 	}
 
-	/** 拖动手柄（⠿ 与甘特侧栏同款）：只有面板模式会渲染 */
-	private renderDragHandle(host: HTMLElement): void {
+	/**
+	 * 拖动手柄（⠿ 与甘特侧栏同款）：只有面板模式会渲染。
+	 *
+	 * `kind` 决定它拖动的是什么：**不分组时挂在卡片上**（拖卡片），
+	 * **分组时挂在分组头上**（拖分组）——组内卡片的顺序在分组视图里没有意义
+	 * （文件夹模式一组往往就一个项目，就一张卡片）。
+	 */
+	private renderDragHandle(host: HTMLElement, kind: "card" | "group"): void {
 		host.createSpan({
 			cls: "pm-drag-handle",
 			text: "⠿",
-			attr: { "data-drag-handle": "card", "aria-hidden": "true", title: "拖动调整卡片顺序" },
+			attr: {
+				"data-drag-handle": kind,
+				"aria-hidden": "true",
+				title: kind === "group" ? "拖动调整分组顺序" : "拖动调整卡片顺序",
+			},
 		});
 	}
 
-	/** 拖动落盘：容器上记着它属于哪个分组，key 交给视图层的既有手动排序 */
-	private commitCardOrder(commit: DragReorderCommit): void {
+	/**
+	 * 拖动落盘：按**被拖动的项**分流，而不看「现在是哪个分组模式」这类外部状态。
+	 *
+	 * 状态与 DOM 一旦不同步（例如渲染后模式又被切换），按状态分流会把分组顺序
+	 * 当成项目顺序写下去；按被拖动的元素分流则永远与用户手上那一下一致。
+	 */
+	private commitDragOrder(commit: DragReorderCommit): void {
+		if (commit.item.classList.contains("pm-group")) {
+			this.callbacks.onReorderGroups(this.renderedGroupOrder());
+			return;
+		}
+		// 组内项目：容器上记着它属于哪个分组，key 交给视图层的既有手动排序
 		const groupKey = commit.container
 			.closest("[data-group-key]")
 			?.getAttribute("data-group-key");
 		if (groupKey === null || groupKey === undefined || groupKey.length === 0) return;
 		this.callbacks.onReorderProjects(groupKey, commit.keys);
+	}
+
+	/**
+	 * 屏幕上此刻的分组 key 顺序：快速分区列表 + 普通分组列表，按文档顺序拼起来。
+	 *
+	 * 两个列表各自可拖，但 manualGroupOrder 里只有**一份** key 表（甘特分节共用同一份），
+	 * 所以落盘要给完整顺序。没被拖动的那一份按它当前显示的顺序原样带上即可——
+	 * 与甘特侧栏传「全部节 key」是同一口径。
+	 */
+	private renderedGroupOrder(): string[] {
+		const keys: string[] = [];
+		for (const list of Array.from(this.host.querySelectorAll("[data-group-list]"))) {
+			keys.push(...childKeys(list as HTMLElement));
+		}
+		return keys;
 	}
 
 	// ────────────────────────────── 渲染 ──────────────────────────────
@@ -227,6 +277,8 @@ export class GroupPanel {
 			const section = this.host.createDiv({ cls: "pm-group-panel__section" });
 			section.createEl("h3", { cls: "pm-section-title", text: "⚡ 快速项目" });
 			const list = section.createDiv({ cls: "pm-group-list" });
+			// 拖动分组时要从这里读回 key 顺序（快速分区与普通分组共用一份分组顺序表）
+			list.dataset.groupList = "quick";
 			for (const group of result.quickGroups) {
 				this.renderGroup(list, toRenderable(group), ctx);
 			}
@@ -250,7 +302,16 @@ export class GroupPanel {
 				text:
 					options.mode === "objective" || options.mode === "area" ? "📋 分组" : "📋 项目",
 			});
-			const list = section.createDiv({ cls: "pm-group-list" });
+			/*
+			 * 不分组时多挂一个类：这份列表里装的是**项目卡片**（一格 = 一张卡片），
+			 * 尺寸该比分组模式小——分组模式的一格里是一整组（可能装好几个项目）。
+			 * 见 styles.css 的 `.pm-panel-mode .pm-group-list--flat`（用户口径 2026-09-21）。
+			 */
+			const list = section.createDiv({
+				cls: flat ? "pm-group-list pm-group-list--flat" : "pm-group-list",
+			});
+			// 分组模式：这份列表里装的是分组，拖动它排分组顺序（不分组时是卡片，见下）
+			if (!flat) list.dataset.groupList = "normal";
 			for (const group of result.normalGroups) {
 				if (flat) {
 					// 拖动落盘要知道卡片属于哪个分组（不分组 = 唯一的扁平列表）
@@ -298,7 +359,7 @@ export class GroupPanel {
 			if (ctx.canLocateInGantt) el.dataset.focusPath = single.file.path;
 		}
 
-		this.renderGroupHead(el, group, single, collapsed);
+		this.renderGroupHead(el, group, single, collapsed, ctx);
 		const body = el.createDiv({ cls: `pm-group__body${collapsed ? " is-hidden" : ""}` });
 		// 组内卡片拖动排序时，靠它找到自己属于哪个分组
 		body.dataset.groupKey = group.key;
@@ -340,12 +401,13 @@ export class GroupPanel {
 		}
 	}
 
-	/** 分组头：折叠开关 + 标题（或项目链接）+ 徽章 */
+	/** 分组头：拖动手柄 + 折叠开关 + 标题（或项目链接）+ 徽章 */
 	private renderGroupHead(
 		groupEl: HTMLElement,
 		group: RenderableGroup,
 		single: ProjectItem | null,
 		collapsed: boolean,
+		ctx: RenderContext,
 	): void {
 		const head = groupEl.createEl("button", {
 			cls: "pm-group__head",
@@ -356,6 +418,12 @@ export class GroupPanel {
 			},
 		});
 		head.dataset.toggleGroup = group.key;
+		/*
+		 * 分组抓手放最前（与卡片抓手同位置规律）。它跟折叠按钮是**两层交互**：
+		 * 手柄在 pointerdown 上 stopPropagation + preventDefault，之后浏览器补发的
+		 * click 又被 consumeDragClick 吃掉，所以拖完不会顺带把分组折叠掉。
+		 */
+		if (ctx.panelMode && ctx.mode !== "none") this.renderDragHandle(head, "group");
 		head.createSpan({ cls: "pm-chevron", text: collapsed ? "▸" : "▾" });
 
 		const title = head.createSpan({ cls: "pm-group__title" });
@@ -421,7 +489,12 @@ export class GroupPanel {
 		}
 
 		const head = card.createDiv({ cls: "pm-card__head" });
-		if (ctx.panelMode) this.renderDragHandle(head);
+		/*
+		 * 抓手只挂在不分组模式：**分组时被拖动的单位是分组本身**，不是里面的卡片
+		 * （用户口径 2026-09-21）。分组视图下拖组内卡片没有意义——文件夹模式一组
+		 * 往往只有一个项目，也就是只有一张卡片。
+		 */
+		if (ctx.panelMode && ctx.mode === "none") this.renderDragHandle(head, "card");
 		if (showTitle) {
 			const title = head.createEl("h4", { cls: "pm-card__title" });
 			const link = title.createEl("a", {

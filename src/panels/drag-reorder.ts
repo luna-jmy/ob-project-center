@@ -34,7 +34,10 @@ export interface DragReorderCommit {
 }
 
 export interface DragReorderConfig {
-	/** 可拖动项的选择器 */
+	/**
+	 * 可拖动项的选择器。可以给多个（逗号分隔）：`closest` 取**最近的**匹配祖先，
+	 * 所以手柄挂在分组里就拖分组、挂在卡片里就拖卡片，一套监听器够用。
+	 */
 	itemSelector: string;
 	/** 拖动手柄的选择器 */
 	handleSelector: string;
@@ -280,7 +283,7 @@ export class DragReorder {
 }
 
 /** 容器内所有可排序项的 key（按当前文档顺序） */
-function childKeys(container: HTMLElement): string[] {
+export function childKeys(container: HTMLElement): string[] {
 	return Array.from(container.children)
 		.map((child) => (child as HTMLElement).dataset.key ?? "")
 		.filter((key) => key.length > 0);

@@ -1,4 +1,4 @@
-import { App, getIconIds, ItemView, Notice, TFile, WorkspaceLeaf } from "obsidian";
+import { App, getIconIds, ItemView, normalizePath, Notice, TFile, WorkspaceLeaf } from "obsidian";
 import { buildGanttModel, GANTT_SKIP_MESSAGES, GanttModel } from "../gantt/gantt-model";
 import { exportableRows, exportMermaid, wrapInMarkers } from "../gantt/mermaid-export";
 import { GanttView, ZoomAnchor } from "../gantt/gantt-view";
@@ -8,6 +8,12 @@ import { ProjectEditorModal } from "../modals/project-editor-modal";
 import { FilterBar } from "../panels/filter-bar";
 import { GroupPanel } from "../panels/group-panel";
 import { MermaidOptions, MermaidPanel } from "../panels/mermaid-panel";
+import {
+	exportImageName,
+	MermaidImageExport,
+	readAttachmentSetting,
+	resolveAttachmentFolder,
+} from "../panels/svg-image";
 import { DataIssue } from "../services/project-item";
 import { ProjectService } from "../services/project-service";
 import {
@@ -373,8 +379,10 @@ export class DashboardView extends ItemView {
 			onHoverProject: (path) => this.hoverProject(path),
 			// 面板自带的编辑入口：长期项目不在甘特上，只能从这里改
 			onEditProject: (path) => this.openEditorModal(path),
-			// 面板模式下拖动卡片：与甘特侧栏的拖动共用同一套手动排序落盘
+			// 面板模式下拖动卡片（不分组时）/ 拖动分组（分组时）：
+			// 与甘特侧栏的拖动共用同一套手动排序落盘
 			onReorderProjects: (groupKey, paths) => void this.reorderProjects(groupKey, paths),
+			onReorderGroups: (keys) => void this.reorderGroups(keys),
 		});
 
 		const main = body.createDiv({ cls: "pm-main" });
@@ -429,6 +437,8 @@ export class DashboardView extends ItemView {
 			onOptionsChange: (patch) => void this.handleMermaidOptions(patch),
 			onExportCode: () => void this.exportMermaidCode(),
 			onWriteToNote: () => this.writeToNote(),
+			// 导出图片：面板把预览里的 svg 取出并转好载荷，这里只管落盘
+			onExportImage: (payload) => void this.exportMermaidImage(payload),
 		});
 		this.applyTab();
 	}
@@ -664,7 +674,12 @@ export class DashboardView extends ItemView {
 		new Notice(reason);
 	}
 
-	/** 拖动分组：记进设置并自动切到「手动排序」 */
+	/**
+	 * 拖动分组：记进设置并自动切到「手动排序」。
+	 *
+	 * 两个入口共用它——甘特侧栏拖分节、面板模式拖分组（用户口径 2026-09-21）。
+	 * `keys` 都是**完整**的分组 key 顺序（面板那边把快速分区与普通分组拼成一份）。
+	 */
 	private async reorderGroups(keys: string[]): Promise<void> {
 		const settings = this.host.settings;
 		settings.manualGroupOrder = { ...settings.manualGroupOrder, [this.groupingMode]: keys };
@@ -1061,6 +1076,63 @@ export class DashboardView extends ItemView {
 			settings.mermaidMarkerEnd,
 		);
 		new Notice(result.ok ? `已写入 ${leafName(path)}` : result.message);
+	}
+
+	/**
+	 * 导出 Mermaid 预览的图片（用户口径 2026-09-21）。
+	 *
+	 * 落点用 Obsidian 自己的「附件默认位置」配置（读不到就退到 vault 根）：
+	 * 那是用户**已经配过**的地方，插件没理由再要一个自己的目录参数。
+	 * 文件名带时间戳，同名自动加序号——导出的常态是连着导好几版，覆盖掉上一版比多一个文件更糟。
+	 *
+	 * 写完把**路径复制进剪贴板**（用户口径 2026-09-21）：附件目录动辄几百个文件，
+	 * 手工翻找很难受；有路径就能直接粘进快速切换/搜索里定位。
+	 */
+	 private async exportMermaidImage(payload: MermaidImageExport): Promise<void> {
+	 const app = this.host.app;
+	 const folder = resolveAttachmentFolder(
+	 readAttachmentSetting(app),
+	 app.workspace.getActiveFile()?.parent?.path ?? null,
+	 );
+	 const name = exportImageName("甘特图", payload.format, new Date());
+	 try {
+	 // 附件目录可能还没建过（配置里写的是一个新路径）
+	 if (folder.length > 0 && app.vault.getAbstractFileByPath(folder) === null) {
+	 await app.vault.createFolder(folder);
+	 }
+	 const path = this.uniqueExportPath(folder, name);
+	 if (typeof payload.data === "string") {
+	 await app.vault.create(path, payload.data);
+	 } else {
+	 await app.vault.createBinary(path, payload.data);
+	 }
+	 /*
+	 * 复制失败**不改判定**：文件已经写好了，那才是这次操作的主体；
+	 * 剪贴板只是「更好找」的顺手动作，失败了就在提示里说清、让用户回附件目录取。
+	 */
+	 const copied = await copyToClipboard(path, this.contentEl.ownerDocument);
+	 new Notice(
+	 copied
+	 ? `已导出并复制路径：${path}`
+	 : `已导出 ${path}（复制路径失败，请到附件目录查找）`,
+	 );
+	 } catch (error) {
+	 new Notice(`导出失败：${error instanceof Error ? error.message : String(error)}`);
+	 }
+	 }
+
+	/** 同名文件已存在就换 `-2`、`-3`……（不覆盖用户已有的导出） */
+	private uniqueExportPath(folder: string, name: string): string {
+		const join = (fileName: string): string =>
+			normalizePath(folder.length === 0 ? fileName : `${folder}/${fileName}`);
+		const dot = name.lastIndexOf(".");
+		const base = dot === -1 ? name : name.slice(0, dot);
+		const ext = dot === -1 ? "" : name.slice(dot);
+		for (let index = 1; index < 1000; index += 1) {
+			const candidate = join(index === 1 ? name : `${base}-${index}${ext}`);
+			if (this.host.app.vault.getAbstractFileByPath(candidate) === null) return candidate;
+		}
+		return join(name);
 	}
 
 	/** 供测试脚本/外部命令读取当前视图状态（不含 DOM） */
