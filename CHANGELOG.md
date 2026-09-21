@@ -7,6 +7,10 @@
 
 ## [Unreleased]
 
+暂无。
+
+## [1.1.0] - 2026-09-21
+
 ### 新增
 
 - 排序档新增「开始日 ↑」「开始日 ↓」「截止日 ↓」
@@ -51,6 +55,13 @@
 - 模板路径按 Obsidian「复制路径」的形态容错：缺 `.md` / 绝对路径 / `[[wikilink]]` / 引号
 - 面板拖动排序：落点改用幽灵自身位置 + 阅读顺序判定，不再整体偏移一格
   （原先按指针位置判定，而抓手在卡片左上角）
+
+### 测试
+
+- `vitest`：22 个测试文件 / 460 例全绿；`tsc` 与 `eslint`（官方预设）零错误
+- 新增 `tests/svg-image.test.ts`（导出文件名、附件目录推导、viewBox 解析）
+- 图片导出与拖动排序属 DOM 层，仓库对 panels 不写 DOM 测试——这两块按要求在
+  Obsidian 里实机验收，未用自动化测试冒充覆盖
 
 ## [1.0.0] - 2026-09-20
 
@@ -108,5 +119,6 @@
 - 纯逻辑层全覆盖：规范化、筛选管道、分组与资料归集、甘特模型与时间刻度、
   Mermaid 导出、字段映射、设置迁移、节假日排期
 
-[Unreleased]: https://github.com/luna-jmy/ob-project-center/compare/1.0.0...HEAD
+[Unreleased]: https://github.com/luna-jmy/ob-project-center/compare/1.1.0...HEAD
+[1.1.0]: https://github.com/luna-jmy/ob-project-center/releases/tag/1.1.0
 [1.0.0]: https://github.com/luna-jmy/ob-project-center/releases/tag/1.0.0
