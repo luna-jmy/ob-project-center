@@ -49,7 +49,19 @@ export interface GanttSection {
 	collapsed: boolean;
 }
 
-export type GanttSkipReason = "cancelled" | "no-dates" | "long-term";
+export type GanttSkipReason = "no-dates" | "long-term";
+
+/**
+ * 跳过原因 → 人话（统计行与「编辑保存后为什么图上没有」共用一份口径）。
+ *
+ * 2026-09-21：**取消状态不再跳过**，设置项「甘特图隐藏已取消项目」整体移除——
+ * 要不要显示取消的项目，由状态筛选决定（筛选里本来就有「取消」这个可选项）。
+ * 同一件事留两个开关，结果就是用户把项目改成取消后它从图上消失，还找不到原因。
+ */
+export const GANTT_SKIP_MESSAGES: Readonly<Record<GanttSkipReason, string>> = {
+	"long-term": "它标记为长期项目，按设计不上甘特图（面板里照常显示）",
+	"no-dates": "它没有起止日期，甘特图上无法定位（补上日期即可）",
+};
 
 export interface GanttModel {
 	sections: GanttSection[];
@@ -134,10 +146,7 @@ export function buildGanttModel(
 			model.skipped.push({ item, reason: "long-term" });
 			continue;
 		}
-		if (settings.hideCancelledInGantt && item.status === "cancelled") {
-			model.skipped.push({ item, reason: "cancelled" });
-			continue;
-		}
+		// cancelled 不再跳过（2026-09-21）：上不上由状态筛选决定，模型只管时间上能不能画
 
 		const row = resolveRow(item, settings.dateFallback, fallbackDays);
 		if (row === null) {

@@ -40,59 +40,65 @@ function item(overrides: Partial<ProjectItem> & { name: string; path?: string })
 type FolderNotes = Record<string, { path: string; name: string }[]>;
 
 /*
- * 「不分组」档（用户口径 2026-09-20）：不按文件夹 / 目标 / 领域切，
- * 改成按「有没有资料 + 快速项目」分三块，一眼看出哪些项目还空着。
+ * 「不分组」档（用户口径 2026-09-21）：**真的不分组** ——
+ * 除快速项目单独成区外，所有项目合成一份扁平列表，一个项目一张卡片。
  *
- * 判定复用 `splitByKind()`——面板的卡片形态用的就是它，所以这组用例同时也锁住了
- * 「分区」与「卡片形态」不会各走一套口径。
+ * 为什么值得单独锁：早先这里按「有没有资料」切成「有资料 / 没资料」两块，
+ * 于是用户在设置里选了「不分组」，界面上却冒出两个像分类的标题。
+ * 「有没有资料」是项目的**形态**（folder 模式下带资料 → 独立框、不带资料 → 紧凑列表），
+ * 不该升格成分组标题——这条测试就是防它再升格回去。
  */
-describe("不分组模式（有资料 / 没资料 / 快速项目三分区）", () => {
+describe("不分组模式（一份扁平列表 + 快速项目单独成区）", () => {
 	const noneSettings: ProjectMasterSettings = { ...DEFAULT_SETTINGS, defaultGrouping: "none" };
 	const folders: FolderNotes = {
 		// A 有自己的文件夹且里面有资料；B 的文件夹是空的；quick 在扫描根层
 		"100 Projects/A": [{ path: "100 Projects/A/笔记.md", name: "笔记" }],
 	};
+	/** 顺序刻意是 quick → A → B：用来验证扁平列表不会按形态重排 */
+	const threeProjects = () => [
+		item({ name: "quick", path: "100 Projects/quick.md" }),
+		item({ name: "A", path: "100 Projects/A/A.md" }),
+		item({ name: "B", path: "100 Projects/B/B.md" }),
+	];
 
-	it("splits into 快速项目 → 有资料 → 没资料 in that order", () => {
-		const result = groupProjects(
-			[
-				item({ name: "quick", path: "100 Projects/quick.md" }),
-				item({ name: "A", path: "100 Projects/A/A.md" }),
-				item({ name: "B", path: "100 Projects/B/B.md" }),
-			],
-			noneSettings,
-			{ folderNotes: folders },
-		);
+	it("keeps one flat list covering both 有资料 and 没资料 projects", () => {
+		const result = groupProjects(threeProjects(), noneSettings, { folderNotes: folders });
 		expect(result.quickGroups.map((group) => group.title)).toEqual(["快速项目"]);
-		expect(result.normalGroups.map((group) => group.title)).toEqual(["有资料", "没资料"]);
-		expect(toSectionSpecs(result).map((spec) => spec.name)).toEqual([
-			"快速项目",
-			"有资料",
-			"没资料",
-		]);
+		// 只剩一份列表，标题不再是形态名
+		expect(result.normalGroups.map((group) => group.title)).toEqual(["全部项目"]);
+		// A（有资料）与 B（没资料）都在里面，顺序仍是排序档给的顺序
+		expect(result.normalGroups[0]?.projects.map((p) => p.file.name)).toEqual(["A", "B"]);
 	});
 
-	it("omits empty buckets instead of emitting blank sections", () => {
-		const result = groupProjects(
-			[item({ name: "A", path: "100 Projects/A/A.md" })],
-			noneSettings,
-			{ folderNotes: folders },
-		);
-		expect(toSectionSpecs(result).map((spec) => spec.name)).toEqual(["有资料"]);
+	it("turns the flat list into exactly one gantt section", () => {
+		const specs = toSectionSpecs(groupProjects(threeProjects(), noneSettings, { folderNotes: folders }));
+		expect(specs.map((spec) => spec.name)).toEqual(["快速项目", "全部项目"]);
+		expect(specs[0]?.paths).toEqual(["100 Projects/quick.md"]);
+		expect(specs[1]?.paths).toEqual(["100 Projects/A/A.md", "100 Projects/B/B.md"]);
 	});
 
-	it("treats everything as 没资料 when the caller supplies no notes at all", () => {
-		// 没提供 folderNotes = 不知道有没有资料，此时不该把大家都算成「有资料」
+	it("drops the quick section when there is no quick project", () => {
+		const result = groupProjects([item({ name: "A", path: "100 Projects/A/A.md" })], noneSettings, {
+			folderNotes: folders,
+		});
+		expect(result.quickGroups).toEqual([]);
+		expect(toSectionSpecs(result).map((spec) => spec.name)).toEqual(["全部项目"]);
+	});
+
+	it("works when the caller supplies no notes at all", () => {
+		// 没有笔记清单 = 不知道有没有资料：不该因此把项目排除在扁平列表之外
 		const result = groupProjects([item({ name: "A", path: "100 Projects/A/A.md" })], noneSettings);
-		expect(result.normalGroups.map((group) => group.title)).toEqual(["没资料"]);
+		expect(result.normalGroups.map((group) => group.title)).toEqual(["全部项目"]);
+	});
+
+	it("does not attach a group-level note list (each card carries its own)", () => {
+		// 挂一份「整张列表的并集」既重复，又会被 maxNotesPerProject 截断成误导性的数字
+		const result = groupProjects(threeProjects(), noneSettings, { folderNotes: folders });
+		expect(result.normalGroups[0]?.notes).toBeUndefined();
 	});
 
 	it("prefixes section keys so they cannot collide with folder paths or area values", () => {
-		const result = groupProjects(
-			[item({ name: "quick", path: "100 Projects/quick.md" })],
-			noneSettings,
-			{ folderNotes: folders },
-		);
+		const result = groupProjects(threeProjects(), noneSettings, { folderNotes: folders });
 		for (const key of [
 			...result.quickGroups.map((group) => group.folder),
 			...result.normalGroups.map((group) => group.key),
@@ -102,14 +108,7 @@ describe("不分组模式（有资料 / 没资料 / 快速项目三分区）", (
 	});
 
 	it("still reports per-project materials so the panel can pick card styles", () => {
-		const result = groupProjects(
-			[
-				item({ name: "A", path: "100 Projects/A/A.md" }),
-				item({ name: "B", path: "100 Projects/B/B.md" }),
-			],
-			noneSettings,
-			{ folderNotes: folders },
-		);
+		const result = groupProjects(threeProjects(), noneSettings, { folderNotes: folders });
 		expect(result.materialsByPath["100 Projects/A/A.md"]).toHaveLength(1);
 		expect(result.materialsByPath["100 Projects/B/B.md"]).toEqual([]);
 	});

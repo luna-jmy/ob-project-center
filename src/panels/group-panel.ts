@@ -1,4 +1,6 @@
 import { Component } from "obsidian";
+import { GANTT_SKIP_MESSAGES, GanttSkipReason } from "../gantt/gantt-model";
+import { DragReorder, DragReorderCommit } from "./drag-reorder";
 import {
 	GroupingResult,
 	NormalGroup,
@@ -12,9 +14,10 @@ import { GroupingMode, PRIORITY_EMOJI, ProjectItem, STATUS_EMOJI, ProjectStatus 
  * 分组面板（SPEC §4 F3 + 用户口径 2026-09-18 / 2026-09-20）—— 规则全部来自
  * grouping-service，这里只画与转发交互。
  *
- * ── 定位：**只读的旁证面板**（用户口径 2026-09-20）──────────────
+ * ── 定位：**只读的旁证面板**（用户口径 2026-09-20，2026-09-21 修订）──────────────
  * 「面板唯一的意义是看到里面具体有哪些资料/笔记」——所以这里：
- * - **不做**拖动排序、**不放**编辑/定位按钮：顺序调整与项目编辑都在甘特区完成；
+ * - 顺序调整与项目编辑都在甘特区完成；**唯一例外**是面板模式：甘特被整页顶掉后，
+ *   卡片可以拖动排序（面板模式下才有抓手，用户口径 2026-09-21）；
  * - 只保留三件事：① 点项目 → 甘特滚动定位到它；② 悬停 → 甘特任务条同步高亮；
  *   ③ 展开某个项目的资料/笔记清单（超出预览条数的可以展开看全）。
  * 分组结构仍与甘特分节一一对应（同一个 key），折叠也在两边同步。
@@ -40,6 +43,13 @@ export interface GroupPanelCallbacks {
 	 * 整页顶掉——两件事叠加，这条路径是唯一能改动它们的口子（用户口径 2026-09-20）。
 	 */
 	onEditProject(path: string): void;
+	/**
+	 * 面板模式下拖动卡片 → 新的路径顺序。
+	 *
+	 * 落盘复用甘特侧栏的同一套手动排序（manualProjectOrder），key 由容器上的
+	 * `data-group-key` 给出；真正写设置与切换排序档在视图层完成。
+	 */
+	onReorderProjects(groupKey: string, paths: string[]): void;
 }
 
 export interface GroupPanelRenderOptions {
@@ -55,6 +65,18 @@ export interface GroupPanelRenderOptions {
 	 * （用户口径 2026-09-20）。
 	 */
 	canLocateInGantt: boolean;
+	/**
+	 * 面板模式（甘特被整页顶掉的整页卡片视图）。
+	 * 只有这个模式下卡片才挂拖动手柄——顺序调整从甘特侧栏挪到了卡片本身。
+	 */
+	panelMode: boolean;
+	/**
+	 * 不会出现在甘特图上的项目 → 原因（长期 / 缺日期，口径来自甘特模型的 skipped）。
+	 *
+	 * 面板模式下甘特不在场，用户看不出「为什么这张卡片在图上没有」；
+	 * 卡片用底色区分并悬停可见原因。非面板模式不用——甘特就在旁边，一眼可见。
+	 */
+	notOnGantt: ReadonlyMap<string, GanttSkipReason>;
 }
 
 /**
@@ -74,6 +96,8 @@ interface RenderableGroup {
 }
 
 export class GroupPanel {
+	private readonly dragReorder: DragReorder;
+
 	constructor(
 		private readonly component: Component,
 		private readonly host: HTMLElement,
@@ -81,6 +105,15 @@ export class GroupPanel {
 	) {
 		this.host.addClass("pm-group-panel");
 		this.registerInteraction();
+		/*
+		 * 卡片拖动（仅面板模式会渲染手柄）：监听器注册一次，靠 data-* 委托分发。
+		 * 落盘走 onReorderProjects → 视图层的 reorderProjects（与甘特侧栏同一套手动排序）。
+		 */
+		this.dragReorder = new DragReorder(component, this.host, {
+			itemSelector: ".pm-card[data-key]",
+			handleSelector: "[data-drag-handle]",
+			onCommit: (commit) => this.commitCardOrder(commit),
+		});
 	}
 
 	// ────────────────────────────── 交互（注册一次） ──────────────────────────────
@@ -111,6 +144,8 @@ export class GroupPanel {
 	}
 
 	private onClick(evt: MouseEvent): void {
+		// 手柄上的按下-抬起会被浏览器补发 click，不拦会拖完顺带打开笔记/折叠分组
+		if (this.dragReorder.consumeDragClick()) return;
 		const el = this.elementOf(evt.target);
 		if (el === null) return;
 
@@ -159,6 +194,24 @@ export class GroupPanel {
 		button?.setText(expanded ? "收起" : (button.getAttribute("data-collapsed-label") ?? "展开全部"));
 	}
 
+	/** 拖动手柄（⠿ 与甘特侧栏同款）：只有面板模式会渲染 */
+	private renderDragHandle(host: HTMLElement): void {
+		host.createSpan({
+			cls: "pm-drag-handle",
+			text: "⠿",
+			attr: { "data-drag-handle": "card", "aria-hidden": "true", title: "拖动调整卡片顺序" },
+		});
+	}
+
+	/** 拖动落盘：容器上记着它属于哪个分组，key 交给视图层的既有手动排序 */
+	private commitCardOrder(commit: DragReorderCommit): void {
+		const groupKey = commit.container
+			.closest("[data-group-key]")
+			?.getAttribute("data-group-key");
+		if (groupKey === null || groupKey === undefined || groupKey.length === 0) return;
+		this.callbacks.onReorderProjects(groupKey, commit.keys);
+	}
+
 	// ────────────────────────────── 渲染 ──────────────────────────────
 
 	render(result: GroupingResult, options: GroupPanelRenderOptions): void {
@@ -183,14 +236,30 @@ export class GroupPanel {
 			this.host.createDiv({ cls: "pm-group-panel__divider" });
 		}
 
+		/*
+		 * 「不分组」模式（用户口径 2026-09-21）：一份扁平列表——不套分组壳、不出分组头，
+		 * 一个项目一张卡片（没资料的也照样给卡片，不再降级成紧凑行）。
+		 * 快速项目走上面的独立分区，不进这份列表。
+		 */
+		const flat = options.mode === "none";
 		if (result.normalGroups.length > 0) {
 			const section = this.host.createDiv({ cls: "pm-group-panel__section" });
 			section.createEl("h3", {
 				cls: "pm-section-title",
-				text: options.mode === "folder" ? "📋 项目" : "📋 分组",
+				// 只有值模式才谈得上「分组」；folder 与不分组都是「项目」
+				text:
+					options.mode === "objective" || options.mode === "area" ? "📋 分组" : "📋 项目",
 			});
 			const list = section.createDiv({ cls: "pm-group-list" });
 			for (const group of result.normalGroups) {
+				if (flat) {
+					// 拖动落盘要知道卡片属于哪个分组（不分组 = 唯一的扁平列表）
+					list.dataset.groupKey = group.key;
+					for (const project of group.projects) {
+						this.renderProjectBox(list, project, ctx, true);
+					}
+					continue;
+				}
 				this.renderGroup(list, toRenderable(group), ctx);
 			}
 		}
@@ -231,6 +300,8 @@ export class GroupPanel {
 
 		this.renderGroupHead(el, group, single, collapsed);
 		const body = el.createDiv({ cls: `pm-group__body${collapsed ? " is-hidden" : ""}` });
+		// 组内卡片拖动排序时，靠它找到自己属于哪个分组
+		body.dataset.groupKey = group.key;
 
 		if (single !== null) {
 			// 分组名与项目名合并展示，框内不再重复标题
@@ -327,12 +398,30 @@ export class GroupPanel {
 		const materials = ctx.materials[project.file.path] ?? [];
 		const card = host.createDiv({ cls: "pm-card" });
 		card.dataset.path = project.file.path;
+		if (ctx.panelMode) {
+			// 拖动排序的 key：childKeys 从容器直接子节点上读它
+			card.dataset.key = project.file.path;
+		}
 		if (ctx.canLocateInGantt) {
 			card.dataset.focusPath = project.file.path;
 			card.setAttribute("title", "点击在甘特图中定位");
 		}
 
+		/*
+		 * 「不会出现在甘特图上」的项目（长期 / 缺日期）用底色区分出来，悬停可见原因
+		 * （口径来自甘特模型的 skipped，规则怎么变这里自动跟上）。
+		 * 底色只做区分，不做禁用态：编辑、拖动、资料清单照常可用。
+		 * 注意 title 会覆盖上面的「点击定位」——被跳过的项目点了也定位不到（只会弹解释），
+		 * 悬停文案与它保持一致才不自相矛盾。
+		 */
+		const skipReason = ctx.notOnGantt.get(project.file.path);
+		if (skipReason !== undefined) {
+			card.addClass("pm-card--off-gantt");
+			card.setAttribute("title", GANTT_SKIP_MESSAGES[skipReason]);
+		}
+
 		const head = card.createDiv({ cls: "pm-card__head" });
+		if (ctx.panelMode) this.renderDragHandle(head);
 		if (showTitle) {
 			const title = head.createEl("h4", { cls: "pm-card__title" });
 			const link = title.createEl("a", {

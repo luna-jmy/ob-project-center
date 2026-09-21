@@ -1,9 +1,11 @@
 import {
 	DefaultYearFilter,
+	GroupingMode,
 	PROJECT_STATUSES,
 	ProjectItem,
 	ProjectStatus,
 	SortMode,
+	STATUS_LABELS,
 } from "../types";
 import { addDaysIso, daysInMonth, formatIso, todayIso } from "../utils/date";
 
@@ -136,6 +138,33 @@ export function presetToStatuses(preset: StatusPreset): ProjectStatus[] {
 }
 
 /**
+ * 状态档在界面上的说法。
+ *
+ * 档位名必须如实写出**它会隐藏哪些状态**：默认档叫「隐藏已完成」，
+ * 实际还隐藏「取消」与「归档」（继承旧脚本的 completedStatuses）。只写「隐藏已完成」时，
+ * 用户把项目改成 cancelled、项目从看板上消失，完全联想不到是这一档干的
+ * （2026-09-21 报的 bug）。
+ */
+export const STATUS_PRESET_LABELS: Record<StatusPreset, string> = {
+	"hide-completed": "隐藏已完成/取消/归档",
+	"completed-only": "仅已完成/取消/归档",
+	all: "全部",
+};
+
+/**
+ * 年度档的人话描述（统计行与「为什么看不见」两处共用一份，避免措辞慢慢走样）。
+ * 不限时返回「不限」——调用方若只想在真的限制了年度时才提示，自行判断即可。
+ */
+export function describeYearState(state: FilterState): string {
+	const { startYear, endYear } = state;
+	if (startYear === null && endYear === null) return "不限";
+	const parts: string[] = [];
+	if (startYear !== null) parts.push(`开始 ${startYear} 年`);
+	if (endYear !== null) parts.push(`结束 ${endYear} 年`);
+	return parts.join(" / ");
+}
+
+/**
  * 预设 → 具体区间（today 注入，纯函数可控可测）。
  * week 采用脚本现状（周日起始）；all = 不过滤（null/null）。
  */
@@ -187,7 +216,16 @@ export function applyFilters(
 ): ProjectItem[] {
 	let result = items;
 
-	if (state.statuses.length > 0) {
+	/*
+	 * 「全部状态」= 不按状态筛：这时连**状态无法识别**（frontmatter 里非法/缺失）的条目也要留下。
+	 *
+	 * 不加这一条会有一个很坏的后果（2026-09-21 排查发现）：选中全部状态时，
+	 * 状态非法的项目仍然被这句 `item.status !== null` 丢掉——用户明明选了「全部」，
+	 * 项目却不见了；更糟的是它在看板上永远不显示，于是**连改都没法改**（只能去翻笔记手改）。
+	 * 这类条目的状态问题由索引层的 issue 提示呈现（界面上有「请修复」），不该靠隐藏来处理。
+	 */
+	const filtersByStatus = state.statuses.length > 0 && state.statuses.length < PROJECT_STATUSES.length;
+	if (filtersByStatus) {
 		result = result.filter(
 			(item) => item.status !== null && state.statuses.includes(item.status),
 		);
@@ -319,6 +357,12 @@ export function sortProjects(items: ProjectItem[], mode: SortMode): ProjectItem[
 	switch (mode) {
 		case "due-asc":
 			return copy.sort((a, b) => compareOptionalIso(a.dueDate, b.dueDate));
+		case "due-desc":
+			return copy.sort((a, b) => compareOptionalIsoDesc(a.dueDate, b.dueDate));
+		case "start-asc":
+			return copy.sort((a, b) => compareOptionalIso(a.startDate, b.startDate));
+		case "start-desc":
+			return copy.sort((a, b) => compareOptionalIsoDesc(a.startDate, b.startDate));
 		case "name":
 			// 码点比较而非 localeCompare("zh")：pinyin collation 依赖运行时 ICU 版本，
 			// Electron 与 Node/测试环境可能不一致；码点序跨环境确定（拉丁在前、汉字在后）。
@@ -337,6 +381,14 @@ function compareOptionalIso(a: string | null, b: string | null): number {
 	return a.localeCompare(b);
 }
 
+/** 降序版：方向相反，但「无日期排最后」的口径与升序档一致 */
+function compareOptionalIsoDesc(a: string | null, b: string | null): number {
+	if (a === null && b === null) return 0;
+	if (a === null) return 1;
+	if (b === null) return -1;
+	return b.localeCompare(a);
+}
+
 const PRIORITY_ORDER = ["1", "2", "3", "4", "5"];
 
 function comparePriority(a: string | null, b: string | null): number {
@@ -346,6 +398,43 @@ function comparePriority(a: string | null, b: string | null): number {
 	if (rankA === -1) return 1; // 无效/缺失排最后
 	if (rankB === -1) return -1;
 	return rankA - rankB;
+}
+
+/**
+ * 是否为「按时间排」的档位（用户口径 2026-09-21）：
+ * 时间档会把长期项目置顶（见 longTermFirst + shouldPinLongTerm），其余档位不参与。
+ */
+export function isTimeSort(mode: SortMode): boolean {
+	return (
+		mode === "due-asc" || mode === "due-desc" || mode === "start-asc" || mode === "start-desc"
+	);
+}
+
+/**
+ * 是否要把长期项目置顶：**时间档 + 不分组**。
+ *
+ * 这个判定抽成纯函数是为了消掉一处不一致（用户口径 2026-09-21）：原先条件写死在
+ * 视图层、还多带了一个 `panelMode &&`，于是**面板模式置顶、侧边栏不置顶**——
+ * 同一份卡片列表因为显示位置不同而顺序不同，用户看到的就是「同一批项目换个视图
+ * 就跳来跳去」。
+ *
+ * 判定只看分组模式与排序档，与「卡片显示在哪」无关：侧边栏与面板模式共用这一条。
+ * 分组模式不置顶是**有意**的：分组维度优先，跨组置顶会把项目从它该在的分组里拽走。
+ */
+export function shouldPinLongTerm(grouping: GroupingMode, sort: SortMode): boolean {
+	return grouping === "none" && isTimeSort(sort);
+}
+
+/**
+ * 长期项目置顶（用户口径 2026-09-21）：时间档 + 不分组时使用（见 shouldPinLongTerm）。
+ *
+ * 长期项目没有时间边界，按时间排只会被「无日期排最后」的口径沉到列表尾，
+ * 而它们恰恰是需要一直盯着的。**稳定分区**：长期/非长期各自内部的相对顺序不变
+ * （排序档已经排好的结果不被打乱）——所以它对甘特的行序没有影响：长期项目本来
+ * 就被甘特模型跳过，剩下的非长期项目相对顺序仍是排序档的结果。
+ */
+export function longTermFirst(items: ProjectItem[]): ProjectItem[] {
+	return [...items.filter((item) => item.longTerm), ...items.filter((item) => !item.longTerm)];
 }
 
 // ────────────────────────── 视图状态的纯逻辑 ──────────────────────────
@@ -398,4 +487,49 @@ export function hasActiveFilter(
 		state.startYear !== base.startYear ||
 		state.endYear !== base.endYear
 	);
+}
+
+/**
+ * 「这个项目为什么没显示？」——把筛选管道里那些**不声不响**排除项目的条件翻成人话。
+ *
+ * 起因（2026-09-21 报的 bug）：默认状态档是「隐藏已完成」，而它同时隐藏「取消」与「归档」，
+ * 于是把项目改成 cancelled 之后它就消失了，界面上没有任何一处提到这件事。
+ *
+ * 判定方式是**逐条放开再试**，而不是把筛选规则再写一遍：口径只有 `applyFilters` 一处，
+ * 以后改筛选逻辑，这里的解释会自动跟上（判断顺序与管道顺序一致，先命中的先解释）。
+ *
+ * @returns 当前筛选下可见 → null；不可见 → 一句可展示的原因（含「怎么才能看到」）
+ */
+export function explainHidden(
+	item: ProjectItem,
+	state: FilterState,
+	options: FilterOptions = {},
+): string | null {
+	const passes = (candidate: FilterState): boolean =>
+		applyFilters([item], candidate, options).length > 0;
+	if (passes(state)) return null;
+
+	if (passes({ ...state, statuses: presetToStatuses("all") })) {
+		const label =
+			item.status === null ? "无法识别（frontmatter 里的状态值非法）" : STATUS_LABELS[item.status];
+		return `它的状态是「${label}」，被状态档「${STATUS_PRESET_LABELS[detectStatusPreset(state.statuses)]}」排除了（状态档改成「全部」就能看到）`;
+	}
+
+	if (passes({ ...state, startYear: null, endYear: null })) {
+		return `年度筛选（${describeYearState(state)}）与它的起止日期不符（年度档改成「不限」就能看到）`;
+	}
+
+	if (passes({ ...state, dateRange: { preset: "all", start: null, end: null } })) {
+		return "日期区间筛选把它排除了（区间改成「不限」就能看到）";
+	}
+
+	if (passes({ ...state, areas: [], areaMode: "selected" })) {
+		return "领域筛选把它排除了（清空领域选择就能看到）";
+	}
+
+	if (passes({ ...state, search: "" })) {
+		return "名称搜索词与它不匹配（清空搜索框就能看到）";
+	}
+
+	return "被多个筛选条件同时排除（筛选栏的「清除筛选」可以一次全部放开）";
 }

@@ -204,8 +204,8 @@ export function isQuickProject(item: ProjectItem, settings: ProjectMasterSetting
  * 这些 key 会被当作折叠状态与手动排序的键（同 manual-order 的 `${mode}::${key}` 口径）。
  */
 const KIND_QUICK_KEY = "kind:quick";
-const KIND_WITH_MATERIALS_KEY = "kind:has-materials";
-const KIND_PLAIN_KEY = "kind:no-materials";
+/** 不分组模式的扁平列表（除快速项目外的全部项目） */
+const KIND_ALL_KEY = "kind:all";
 
 export function groupProjects(
 	items: ProjectItem[],
@@ -226,58 +226,47 @@ export function groupProjects(
 		settings.defaultGrouping === "folder"
 			? groupByFolder(items, settings, ctx)
 			: settings.defaultGrouping === "none"
-				? groupByKind(items, quickPaths, materialsByPath, settings, ctx)
+				? groupByKind(items, quickPaths)
 				: groupByValue(items, settings, ctx);
 
 	return { ...base, quickPaths, materialsByPath };
 }
 
 /**
- * 「不分组」模式（用户口径 2026-09-20）：不按文件夹 / 目标 / 领域切，而是按
- * **有没有资料** + **快速项目** 分成三块，一眼看出哪些项目还空着。
+ * 「不分组」模式（用户口径 2026-09-21）：**真的不分组**——除快速项目单独成区外，
+ * 所有项目合成一份扁平列表，一个项目一张卡片。
  *
- * 复用 `splitByKind()`：面板的卡片形态（带资料 → 独立框、不带资料 → 紧凑列表、
- * 快速项目 → ⚡）用的就是它，别在这里再写第二份「什么算有资料」的口径。
+ * 为什么改（原来是按「有没有资料 + 快速项目」切三块）：用户在设置里选的是「不分组」，
+ * 界面却给出「有资料」「没资料」两个看起来像分类的标题——那不是分组维度，
+ * 而是项目的**形态**。形态差异仍然保留，只是退回**卡片样式**里去
+ * （folder 模式下带资料 → 独立框框、不带资料 → 紧凑列表，见 `splitByKind`）。
  *
- * 顺序固定「快速项目 → 有资料 → 没资料」：快速项目在最前是本插件的既有惯例
- * （folder 模式的「快速项目（根目录）」同样固定最前），面板与甘特两侧都按它排。
- * 空的分区不出现。
+ * 快速项目仍然单独成区，且排在最前（与 folder 模式的「快速项目（根目录）」同一惯例）：
+ * 它是另一种形态——没有自己的项目文件夹，资料恒为空（见 `buildMaterialsByPath`），
+ * 并进扁平列表只会让那张卡片没有归属。
+ *
+ * 不调 `attachNotes()`：扁平列表里每张卡片各自带自己的资料清单（`materialsByPath`），
+ * 再挂一份「整张列表的并集」既重复，又会被 maxNotesPerProject 截断成一个误导性的数字。
  */
-function groupByKind(
-	items: ProjectItem[],
-	quickPaths: string[],
-	materialsByPath: Record<string, NoteLink[]>,
-	settings: ProjectMasterSettings,
-	ctx: CollectContext,
-): GroupBuckets {
-	const buckets = splitByKind(items, new Set(quickPaths), materialsByPath);
+function groupByKind(items: ProjectItem[], quickPaths: string[]): GroupBuckets {
+	const quickSet = new Set(quickPaths);
+	// 两次过滤都用同一个判定（与 isQuickProject 同源），避免「哪些算快速项目」出现第二份口径
+	const quickProjects = items.filter((item) => quickSet.has(item.file.path));
+	const rest = items.filter((item) => !quickSet.has(item.file.path));
 
 	const quickGroups: QuickGroup[] =
-		buckets.quick.length === 0
+		quickProjects.length === 0
 			? []
-			: [{ folder: KIND_QUICK_KEY, title: "快速项目", projects: buckets.quick }];
+			: [{ folder: KIND_QUICK_KEY, title: "快速项目", projects: quickProjects }];
 
-	const normalGroups: NormalGroup[] = [];
-	// useMainFlag 传 false：这里「一桶多个项目」是常态，不是 folder 模式那种
-	// 「多项目却没有 main-project」的数据问题，不该报 multiple-projects 警告
-	for (const [key, title, projects] of [
-		[KIND_WITH_MATERIALS_KEY, "有资料", buckets.withMaterials],
-		[KIND_PLAIN_KEY, "没资料", buckets.plain],
-	] as [string, string, ProjectItem[]][]) {
-		if (projects.length === 0) continue;
-		normalGroups.push(buildGroup(key, title, projects, false));
-	}
-
-	if (ctx.hasFolderNotes) {
-		// 资料是**逐项目**归集的：把每个项目自己的文件夹当作收集根并进来
-		// （快速项目没有自己的文件夹，其资料恒为空，见 buildMaterialsByPath）
-		for (const group of normalGroups) {
-			const folders = [...new Set(group.projects.map((p) => p.file.folder))];
-			attachNotes(group, folders, ctx, settings.maxNotesPerProject);
-		}
-	}
-
-	return { quickGroups, normalGroups };
+	// 保持排序档给出的顺序：过滤比「把两个形态桶拼起来」更不容易打乱顺序
+	return {
+		quickGroups,
+		// useMainFlag 传 false：这里「一组多个项目」是常态，不是 folder 模式那种
+		// 「多项目却没有 main-project」的数据问题，不该报 multiple-projects 警告
+		normalGroups:
+			rest.length === 0 ? [] : [buildGroup(KIND_ALL_KEY, "全部项目", rest, false)],
+	};
 }
 
 /**

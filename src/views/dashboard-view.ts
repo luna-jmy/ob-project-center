@@ -1,5 +1,5 @@
 import { App, getIconIds, ItemView, Notice, TFile, WorkspaceLeaf } from "obsidian";
-import { buildGanttModel, GanttModel } from "../gantt/gantt-model";
+import { buildGanttModel, GANTT_SKIP_MESSAGES, GanttModel } from "../gantt/gantt-model";
 import { exportableRows, exportMermaid, wrapInMarkers } from "../gantt/mermaid-export";
 import { GanttView, ZoomAnchor } from "../gantt/gantt-view";
 import { MermaidTargetModal } from "../modals/mermaid-target-modal";
@@ -14,10 +14,17 @@ import {
 	applyFilters,
 	collectYears,
 	defaultFilterState,
+	describeYearState,
+	detectStatusPreset,
+	explainHidden,
 	initialFilterState,
 	FilterState,
+	longTermFirst,
+	presetToStatuses,
 	resolveDateRange,
+	shouldPinLongTerm,
 	sortProjects,
+	STATUS_PRESET_LABELS,
 } from "../services/filter-service";
 import {
 	groupProjects,
@@ -261,10 +268,17 @@ export class DashboardView extends ItemView {
 			},
 			GANTT_ONLY_CLASS,
 		);
-		this.addButton(actions, this.panelMode ? "退出面板模式" : "面板模式", (button) => {
-			this.setPanelMode(!this.panelMode);
-			button.setText(this.panelMode ? "退出面板模式" : "面板模式");
-		});
+		// 「面板模式」是工具栏里最关键的视图切换：独立样式 + 激活态，与普通按钮区分开
+		this.addButton(
+			actions,
+			this.panelMode ? "退出面板模式" : "面板模式",
+			(button) => {
+				this.setPanelMode(!this.panelMode);
+				button.setText(this.panelMode ? "退出面板模式" : "面板模式");
+				button.toggleClass("is-on", this.panelMode);
+			},
+			"pm-btn--panel-toggle",
+		);
 	}
 
 	private addButton(
@@ -359,6 +373,8 @@ export class DashboardView extends ItemView {
 			onHoverProject: (path) => this.hoverProject(path),
 			// 面板自带的编辑入口：长期项目不在甘特上，只能从这里改
 			onEditProject: (path) => this.openEditorModal(path),
+			// 面板模式下拖动卡片：与甘特侧栏的拖动共用同一套手动排序落盘
+			onReorderProjects: (groupKey, paths) => void this.reorderProjects(groupKey, paths),
 		});
 
 		const main = body.createDiv({ cls: "pm-main" });
@@ -439,10 +455,22 @@ export class DashboardView extends ItemView {
 
 		const filtered = applyFilters(all, this.filterState, { today });
 		const sorted = sortProjects(filtered, this.sortMode);
+		/*
+		 * 不分组 + 时间档：长期项目没有时间边界，按时间排只会被
+		 * 「无日期排最后」沉到列表尾，而它们恰恰是要一直盯着的——置顶
+		 * （用户口径 2026-09-21）。
+		 *
+		 * 判定**不再带 panelMode**：原来多加了这一个条件，导致面板模式置顶、
+		 * 侧边栏不置顶，同一批卡片换个视图顺序就变。置顶与否该由分组模式与排序档
+		 * 决定，与卡片显示在哪无关（口径收在 shouldPinLongTerm）。
+		 */
+		const ordered = shouldPinLongTerm(this.groupingMode, this.sortMode)
+			? longTermFirst(sorted)
+			: sorted;
 
 		// grouping-service 以 settings.defaultGrouping 决定模式：
 		// 视图内的即时切换通过覆盖这一项实现，不必给服务加一层只在 UI 用的参数
-		const grouped = groupProjects(sorted, { ...settings, defaultGrouping: this.groupingMode }, {
+		const grouped = groupProjects(ordered, { ...settings, defaultGrouping: this.groupingMode }, {
 			folderNotes: this.host.getFolderNotes(),
 			// 项目文档不是「资料」，用它把项目文档从资料计数里剔除
 			projectPaths: all.map((item) => item.file.path),
@@ -458,7 +486,7 @@ export class DashboardView extends ItemView {
 			collapsed: this.collapsedKeys.has(spec.key),
 		}));
 
-		const model = buildGanttModel(sorted, settings, today, {
+		const model = buildGanttModel(ordered, settings, today, {
 			sections,
 			axisRange: this.resolveAxisRange(today) ?? undefined,
 		});
@@ -476,6 +504,12 @@ export class DashboardView extends ItemView {
 			collapsedKeys: this.collapsedKeys,
 			// 面板模式下甘特被整页顶掉：卡片不再挂「点击定位」的提示与行为
 			canLocateInGantt: !this.panelMode,
+			// 面板模式下卡片才有拖动手柄（顺序调整从甘特侧栏挪到卡片本身）
+			panelMode: this.panelMode,
+			// 面板模式下用底色区分「不会出现在甘特图上」的项目，原因悬停可见
+			notOnGantt: new Map(
+				(this.lastModel?.skipped ?? []).map((skip) => [skip.item.file.path, skip.reason]),
+			),
 		});
 		this.filterBar?.update();
 		this.renderIssues();
@@ -537,12 +571,9 @@ export class DashboardView extends ItemView {
 
 	/** 年度筛选的人话描述（放在统计行里，让用户一眼知道列表为什么变短了） */
 	private describeYearFilter(): string | null {
-		const { startYear, endYear } = this.filterState;
-		if (startYear === null && endYear === null) return null;
-		const parts: string[] = [];
-		if (startYear !== null) parts.push(`开始 ${startYear} 年`);
-		if (endYear !== null) parts.push(`结束 ${endYear} 年`);
-		return parts.join(" / ");
+		// 文案口径收在 filter-service（「为什么看不见」的提示也用同一份，避免两处措辞走样）
+		const label = describeYearState(this.filterState);
+		return label === "不限" ? null : label;
 	}
 
 	// ────────────────────────────── 联动与排序 ──────────────────────────────
@@ -621,15 +652,14 @@ export class DashboardView extends ItemView {
 		if (found) return;
 		const item = this.host.getProjects().find((p) => p.file.path === path);
 		/*
-		 * 不在图上时要说清是**哪一种**不在：长期项目与「已取消」都有日期，
+		 * 不在图上时要说清是**哪一种**不在：长期项目有日期也不上图，
 		 * 一律答「缺起止日期」就是在说假话，用户会去补一个根本不缺的日期。
 		 * 长期项目那条顺带指向面板的「编辑」按钮——那是它唯一的界面入口。
+		 * （cancelled 不再有特殊处理：它能不能上甘特图由状态筛选决定。）
 		 */
 		let reason = "该项目缺起止日期，无法在甘特图上定位";
 		if (item !== undefined && item.longTerm) {
 			reason = "该项目标记为长期项目，按设计不上甘特图（可在面板卡片上点「编辑」修改）";
-		} else if (item !== undefined && item.status === "cancelled") {
-			reason = "该项目已取消，按设置不上甘特图";
 		}
 		new Notice(reason);
 	}
@@ -761,16 +791,43 @@ export class DashboardView extends ItemView {
 			});
 		}
 
+		/*
+		 * 状态档是另一处「静默排除」：默认档「隐藏已完成」还会隐藏「取消」与「归档」
+		 * （2026-09-21 报的 bug —— 把项目改成 cancelled 后它就不见了，界面没提过半个字）。
+		 * 与年度提示同一处理：报出数字，用户才知道该动哪个条件。
+		 */
+		const allStatuses = presetToStatuses("all");
+		if (this.filterState.statuses.length < allStatuses.length) {
+			const preset = detectStatusPreset(this.filterState.statuses);
+			// detectStatusPreset 把「自定义子集」也归为 all，这里得自己区分，
+			// 否则会印出「状态档「全部」：另有 N 个未显示」这种自相矛盾的话
+			const label = preset === "all" ? "自定义" : STATUS_PRESET_LABELS[preset];
+			const withoutStatusFilter = applyFilters(
+				this.host.getProjects(),
+				{ ...this.filterState, statuses: allStatuses },
+				{ today },
+			);
+			const dropped = withoutStatusFilter.length - shown;
+			if (dropped > 0) {
+				stats.createSpan({
+					cls: "pm-stats__hint",
+					text: `（状态档「${label}」：另有 ${dropped} 个项目因状态未显示）`,
+					attr: {
+						title:
+							"「隐藏已完成」这一档同时还隐藏「取消」与「归档」；把状态档改成「全部」即可看到它们。",
+					},
+				});
+			}
+		}
+
 		if (model.skipped.length > 0) {
 			const reasons = new Map<string, number>();
 			for (const skip of model.skipped) {
 				reasons.set(skip.reason, (reasons.get(skip.reason) ?? 0) + 1);
 			}
 			const parts: string[] = [];
-			const cancelled = reasons.get("cancelled");
 			const noDates = reasons.get("no-dates");
 			const longTerm = reasons.get("long-term");
-			if (cancelled !== undefined) parts.push(`已取消 ${cancelled}`);
 			if (noDates !== undefined) parts.push(`缺日期 ${noDates}`);
 			if (longTerm !== undefined) parts.push(`长期项目 ${longTerm}`);
 			stats.createSpan({
@@ -778,7 +835,7 @@ export class DashboardView extends ItemView {
 				text: `（未上甘特图：${parts.join("、")}）`,
 				attr: {
 					title:
-						"「已取消」默认不上甘特图；「缺日期」需补全起止日期；" +
+						"「缺日期」需补全起止日期；" +
 						"「长期项目」按设计只出现在面板（它没有确定的时间边界）",
 				},
 			});
@@ -862,8 +919,43 @@ export class DashboardView extends ItemView {
 					[this.host.settings.fieldMapping.type]: null,
 				}),
 			openNote: (target) => this.openNote(target),
-			onDone: () => this.host.requestRefresh(),
+			onDone: () => {
+				this.host.requestRefresh();
+				this.explainIfHidden(path);
+			},
 		}).open();
+	}
+
+	/**
+	 * 编辑保存后，若该项目在当前筛选下看不到，明确说出原因。
+	 *
+	 * 不做这件事的话，「把状态改成取消」的直观感受就是「项目被我改没了」——
+	 * 默认状态档会把它筛掉，而界面上没有任何一处提到这一点（2026-09-21 报的 bug）。
+	 */
+	private explainIfHidden(path: string): void {
+		const item = this.host.getProjects().find((candidate) => candidate.file.path === path);
+		// 索引里已经没有了：那不是筛选的问题（例如「删除项目」清掉了 type），不在这里解释
+		if (item === undefined) return;
+
+		const filterReason = explainHidden(item, this.filterState, { today: todayIso() });
+		if (filterReason !== null) {
+			new Notice(`「${item.file.name}」已保存，但当前看板上看不到它：${filterReason}`);
+			return;
+		}
+
+		/*
+		 * 筛选没挡它，就再看**甘特模型**跳过了它没有（取消 / 长期 / 缺日期）。
+		 *
+		 * 这才是「把项目改成取消就找不到」的原因（2026-09-21 报的 bug）：面板里它一直都在，
+		 * 只是甘特图上没有它——而在这之前只有统计行的小字提过这件事。
+		 * 判断直接读 lastModel.skipped，不在这里重写规则：跳过口径只有 gantt-model 一处。
+		 */
+		const skip = this.lastModel?.skipped.find((entry) => entry.item.file.path === path);
+		if (skip !== undefined) {
+			new Notice(
+				`「${item.file.name}」已保存，但甘特图上不会显示它：${GANTT_SKIP_MESSAGES[skip.reason]}`,
+			);
+		}
 	}
 
 	private openNewProjectModal(): void {

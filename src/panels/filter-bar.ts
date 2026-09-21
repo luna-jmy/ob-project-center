@@ -5,6 +5,7 @@ import {
 	DateRangeState,
 	FilterState,
 	StatusPreset,
+	STATUS_PRESET_LABELS,
 	detectStatusPreset,
 	hasActiveFilter,
 	presetToStatuses,
@@ -113,12 +114,10 @@ export class FilterBar {
 
 		const presetSelect = group.createEl("select", { cls: "dropdown pm-filter-select" });
 		this.presetSelect = presetSelect;
-		for (const [value, label] of [
-			["hide-completed", "隐藏已完成"],
-			["completed-only", "仅已完成"],
-			["all", "全部"],
-		] as [StatusPreset, string][]) {
-			presetSelect.createEl("option", { value, text: label });
+		// 文案写成「隐藏已完成/取消/归档」：默认档还会隐藏取消与归档，
+		// 只写「隐藏已完成」的话，用户改完状态找不到项目时联想不到是它（2026-09-21 报的 bug）
+		for (const value of ["hide-completed", "completed-only", "all"] as StatusPreset[]) {
+			presetSelect.createEl("option", { value, text: STATUS_PRESET_LABELS[value] });
 		}
 		this.component.registerDomEvent(presetSelect, "change", () => {
 			this.deps.setStatuses(presetToStatuses(presetSelect.value as StatusPreset));
@@ -259,6 +258,9 @@ export class FilterBar {
 		this.sortSelect = select;
 		for (const [value, label] of [
 			["due-asc", "截止日 ↑"],
+			["due-desc", "截止日 ↓"],
+			["start-asc", "开始日 ↑"],
+			["start-desc", "开始日 ↓"],
 			["name", "项目名"],
 			["priority", "优先级"],
 			// 拖过分组/项目后会自动切到这一档；想回到自动排序就从这里选别的

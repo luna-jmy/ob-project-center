@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildGanttModel, durationLabel, rowIndexOf } from "../src/gantt/gantt-model";
+import { PROJECT_STATUSES } from "../src/types";
 import { projectItem, settings } from "./fixtures";
 
 const TODAY = "2026-09-18";
@@ -225,31 +226,29 @@ describe("甘特模型 — 日期兜底（SPEC §2.3，继承 projectGantt.js ±
 	});
 });
 
-describe("甘特模型 — cancelled 排除（SPEC F1.6，现有规则）", () => {
-	const items = [
-		projectItem({
-			name: "live",
-			startDate: "2026-01-01",
-			dueDate: "2026-01-05",
-			status: "active",
-		}),
-		projectItem({
-			name: "dead",
-			startDate: "2026-01-01",
-			dueDate: "2026-01-05",
-			status: "cancelled",
-		}),
-	];
-
-	it("drops cancelled projects by default", () => {
-		const model = buildGanttModel(items, settings(), TODAY);
-		expect(model.rows.map((r) => r.item.file.name)).toEqual(["live"]);
-		expect(model.skipped.some((s) => s.reason === "cancelled")).toBe(true);
-	});
-
-	it("keeps cancelled projects when the switch is off", () => {
-		const model = buildGanttModel(items, settings({ hideCancelledInGantt: false }), TODAY);
-		expect(model.rows).toHaveLength(2);
+/*
+ * 状态与上图（2026-09-21）：**任何状态都不再被跳过**，取消的项目照常出现在甘特图上。
+ *
+ * 历史背景：SPEC F1.6 曾让「cancelled 默认排除」（继承旧脚本，由设置开关控制），
+ * 结果用户把项目改成取消后它就从图上消失，还找不到原因——而状态筛选里本来就有
+ * 「取消」这个可选项，要不要显示它应该只有一个开关。这条测试固定住新口径。
+ */
+describe("甘特模型 — 状态不影响上图", () => {
+	it("renders every status, cancelled included", () => {
+		const model = buildGanttModel(
+			PROJECT_STATUSES.map((status) =>
+				projectItem({
+					name: status,
+					startDate: "2026-01-01",
+					dueDate: "2026-01-05",
+					status,
+				}),
+			),
+			settings(),
+			TODAY,
+		);
+		expect(model.rows).toHaveLength(PROJECT_STATUSES.length);
+		expect(model.skipped).toEqual([]);
 	});
 });
 
@@ -364,7 +363,8 @@ describe("甘特模型 — 外部分节（左右联动的地基）", () => {
 		const model = buildGanttModel(
 			[
 				...items,
-				projectItem({ name: "dead", startDate: "2026-01-01", dueDate: "2026-01-02", status: "cancelled" }),
+				// 用「缺日期」制造不可渲染的条目（2026-09-21 起 cancelled 不再被跳过，见上）
+				projectItem({ name: "dead" }),
 			],
 			settings(),
 			TODAY,

@@ -5,14 +5,18 @@ import {
 	COMPLETED_LIKE_STATUSES,
 	defaultFilterState,
 	detectStatusPreset,
+	explainHidden,
 	hasActiveFilter,
 	initialFilterState,
+	isTimeSort,
+	longTermFirst,
 	presetToStatuses,
 	resolveDateRange,
+	shouldPinLongTerm,
 	sortProjects,
 	toggle,
 } from "../src/services/filter-service";
-import { ProjectItem, ProjectStatus } from "../src/types";
+import { PROJECT_STATUSES, ProjectItem, ProjectStatus } from "../src/types";
 
 /** 构造测试项目条目（只填筛选相关字段） */
 function item(overrides: Partial<ProjectItem> & { name: string }): ProjectItem {
@@ -460,6 +464,193 @@ describe("默认筛选状态与「清除筛选」（用户要求：默认只看�
 		// 反过来，选了具体年度就属于「已筛选」
 		const picked = { ...state, startYear: 2025 };
 		expect(hasActiveFilter(picked, "2026-09-18", "none")).toBe(true);
+	});
+});
+
+/*
+ * 用户报的 bug（2026-09-21）：把项目状态改成「取消」之后它就从看板上消失了。
+ *
+ * 根因是默认状态档「隐藏已完成」同时隐藏「已完成 / 取消 / 归档」（继承旧脚本的
+ * completedStatuses），而界面上没有任何一处说明这件事。修法不是改掉这个默认档
+ * （那是刻意的历史兼容行为），而是让界面**说得出来**它是被谁筛掉的——
+ * 这组用例锁住「解释得出来」这件事。
+ */
+describe("explainHidden（为什么这个项目看不见）", () => {
+	const TODAY = "2026-09-21";
+
+	it("returns null when the project is visible under the current filter", () => {
+		const project = item({ name: "a", startDate: "2026-01-01" });
+		expect(explainHidden(project, initialFilterState(TODAY), { today: TODAY })).toBeNull();
+	});
+
+	it("blames the status preset for every 已完成类 status", () => {
+		const state = initialFilterState(TODAY);
+		for (const [status, label] of [
+			["cancelled", "取消"],
+			["completed", "完成"],
+			["archived", "归档"],
+		] as [ProjectStatus, string][]) {
+			const reason = explainHidden(item({ name: "a", status, startDate: "2026-01-01" }), state, {
+				today: TODAY,
+			});
+			expect(reason).toContain("状态档");
+			expect(reason).toContain(label);
+		}
+	});
+
+	it("blames the status preset for a project whose status is unreadable", () => {
+		// status 非法的条目在**筛选**档（非全部）下会被排除，这也是「项目不见了」的一种；
+		// 选「全部」时它必须留下，见下面那条用例
+		const reason = explainHidden(
+			item({ name: "a", status: null, startDate: "2026-01-01" }),
+			initialFilterState(TODAY),
+			{ today: TODAY },
+		);
+		expect(reason).toContain("状态档");
+		expect(reason).toContain("无法识别");
+	});
+
+	it('treats "全部状态" as really no status filtering (unreadable statuses included)', () => {
+		// 2026-09-21 排查发现：选中全部状态时，状态非法的条目以前也被筛掉，
+		// 于是它既看不见、又没法从看板上改（只能去翻笔记），「全部」名不副实
+		const state = { ...defaultFilterState(), statuses: presetToStatuses("all") };
+		const broken = item({ name: "broken", status: null });
+		expect(applyFilters([broken], state, { today: TODAY })).toHaveLength(1);
+		expect(explainHidden(broken, state, { today: TODAY })).toBeNull();
+	});
+
+	it("names the year filter when that is what hides it", () => {
+		const state = {
+			...defaultFilterState(),
+			statuses: [...PROJECT_STATUSES],
+			startYear: 2025,
+		};
+		const reason = explainHidden(item({ name: "a", startDate: "2026-05-01" }), state, {
+			today: TODAY,
+		});
+		expect(reason).toContain("年度筛选");
+		expect(reason).toContain("2025");
+	});
+
+	it("names the search box", () => {
+		const state = { ...defaultFilterState(), search: "zzz" };
+		expect(explainHidden(item({ name: "a" }), state, { today: TODAY })).toContain("搜索");
+	});
+
+	it("names the date range and the area filters", () => {
+		const ranged = {
+			...defaultFilterState(),
+			dateRange: { preset: "custom" as const, start: "2026-01-01", end: "2026-01-31" },
+		};
+		expect(
+			explainHidden(item({ name: "a", startDate: "2026-05-01", dueDate: "2026-06-01" }), ranged, {
+				today: TODAY,
+			}),
+		).toContain("日期区间");
+
+		const areaFiltered = { ...defaultFilterState(), areas: ["市场"] };
+		expect(explainHidden(item({ name: "a", area: ["家庭"] }), areaFiltered, { today: TODAY })).toContain(
+			"领域",
+		);
+	});
+
+	it("falls back to a combined reason when several conditions exclude it", () => {
+		const state = { ...defaultFilterState(), search: "zzz", startYear: 2024 };
+		const reason = explainHidden(item({ name: "a", startDate: "2026-01-01" }), state, {
+			today: TODAY,
+		});
+		expect(reason).toContain("多个");
+	});
+});
+
+/*
+ * 用户口径 2026-09-21：新增开始日/截止日的四个时间档（此前只有截止日 ↑），
+ * 以及面板模式扁平列表的长期项目置顶。
+ */
+describe("sortProjects — 新增时间档", () => {
+	const dated = (name: string, start: string | null, due: string | null): ProjectItem =>
+		item({ name, startDate: start, dueDate: due });
+
+	it("due-desc: latest due first, null due last", () => {
+		const items = [
+			dated("a", "2026-01-01", "2026-03-01"),
+			dated("b", "2026-01-01", "2026-12-01"),
+			dated("none", "2026-01-01", null),
+		];
+		expect(sortProjects(items, "due-desc").map((i) => i.file.name)).toEqual(["b", "a", "none"]);
+	});
+
+	it("start-asc / start-desc, null start last in both directions", () => {
+		const items = [
+			dated("mid", "2026-06-01", "2026-07-01"),
+			dated("late", "2026-11-01", "2026-12-01"),
+			dated("early", "2026-01-01", "2026-02-01"),
+			dated("none", null, "2026-08-01"),
+		];
+		expect(sortProjects(items, "start-asc").map((i) => i.file.name)).toEqual([
+			"early",
+			"mid",
+			"late",
+			"none",
+		]);
+		expect(sortProjects(items, "start-desc").map((i) => i.file.name)).toEqual([
+			"late",
+			"mid",
+			"early",
+			"none",
+		]);
+	});
+
+	it("isTimeSort covers only the four date-based modes", () => {
+		expect(isTimeSort("due-asc")).toBe(true);
+		expect(isTimeSort("due-desc")).toBe(true);
+		expect(isTimeSort("start-asc")).toBe(true);
+		expect(isTimeSort("start-desc")).toBe(true);
+		expect(isTimeSort("name")).toBe(false);
+		expect(isTimeSort("priority")).toBe(false);
+		expect(isTimeSort("manual")).toBe(false);
+	});
+});
+
+describe("longTermFirst（不分组扁平列表的长期项目置顶）", () => {
+	it("pins long-term projects to the front, keeping inner order stable", () => {
+		const items = [
+			item({ name: "a", startDate: "2026-01-01", dueDate: "2026-02-01" }),
+			item({ name: "长期1", startDate: "2026-01-01", dueDate: "2026-03-01", longTerm: true }),
+			item({ name: "b", startDate: "2026-01-01", dueDate: "2026-04-01" }),
+			item({ name: "长期2", longTerm: true }),
+		];
+		expect(longTermFirst(items).map((i) => i.file.name)).toEqual(["长期1", "长期2", "a", "b"]);
+		// 稳定分区：不改原数组（refresh 里排序结果还要喂给甘特模型）
+		expect(items.map((i) => i.file.name)).toEqual(["a", "长期1", "b", "长期2"]);
+	});
+});
+
+/*
+ * 置顶判定（用户口径 2026-09-21 修订）：只由「分组模式 + 排序档」决定。
+ *
+ * 这个函数的存在本身就是那条回归守卫：条件原先写在视图层里、还夹了一个 `panelMode &&`，
+ * 于是**面板模式置顶、侧边栏不置顶**——同一批卡片换个视图顺序就变。判定里根本没有
+ * 「显示在哪」这个入参，就不可能出现那种不一致。
+ */
+describe("长期项目置顶判定（时间档 + 不分组）", () => {
+	it("pins only when ungrouped and sorted by time", () => {
+		expect(shouldPinLongTerm("none", "due-asc")).toBe(true);
+		expect(shouldPinLongTerm("none", "due-desc")).toBe(true);
+		expect(shouldPinLongTerm("none", "start-asc")).toBe(true);
+		expect(shouldPinLongTerm("none", "start-desc")).toBe(true);
+	});
+
+	it("does not pin under any grouping mode (group dimension wins)", () => {
+		for (const grouping of ["folder", "objective", "area"] as const) {
+			expect(shouldPinLongTerm(grouping, "due-asc")).toBe(false);
+		}
+	});
+
+	it("does not pin for name / priority / manual sort", () => {
+		expect(shouldPinLongTerm("none", "name")).toBe(false);
+		expect(shouldPinLongTerm("none", "priority")).toBe(false);
+		expect(shouldPinLongTerm("none", "manual")).toBe(false);
 	});
 });
 

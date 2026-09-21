@@ -123,6 +123,57 @@
 	overscroll-behavior: contain;
 }
 
+/*
+ * 「不分组」模式的扁平列表（用户口径 2026-09-21）：卡片直接是网格/列表的一格，
+ * 外面没有分组壳，所以滚动要由卡片自己承担（与 `.pm-group__body` 同口径）——
+ * 面板模式的网格行高是固定的，不写这条的话内容会溢出到下一行去。
+ */
+.pm-panel-mode .pm-group-list > .pm-card {
+	overflow: auto;
+	overscroll-behavior: contain;
+}
+
+/* 卡片拖动排序（仅面板模式有手柄）：拖动中的卡片半透明，拖动期间禁止选中文字 */
+.pm-group-panel.is-reordering {
+	cursor: grabbing;
+	user-select: none;
+}
+
+/*
+ * 拖动中的幽灵：卡片被挂到 body 下（fixed 以视口为参照）跟随指针，
+ * 给一层阴影表示「已经拎起来了」。它不在面板容器内，所以不能靠 .pm-group-panel 作用域。
+ */
+.pm-drag-ghost {
+	opacity: 0.9;
+	box-shadow: var(--shadow-s, 0 4px 12px rgba(0, 0, 0, 0.3));
+}
+
+/* 拖动时撑住原位的占位符：虚线框示意「松手会落到这里」 */
+.pm-drag-placeholder {
+	border: 1px dashed var(--background-modifier-border-hover, var(--background-modifier-border));
+	border-radius: var(--radius-m);
+	background: var(--background-modifier-hover);
+}
+
+/*
+ * 「不会出现在甘特图上」的卡片（长期 / 缺日期，用户口径 2026-09-21）：
+ * 换一层底色与普通卡片区分，原因悬停可见。
+ *
+ * 为什么是 color-mix 而不是换一个主题变量：dark 主题里 --background-secondary 与
+ * 卡片原本的 --background-primary-alt 几乎同层，换过去等于没换（用户实测 dark 下无区分）。
+ * 而 --text-muted 与底色在**任何主题**下都有差距，往卡片底色里掺一点它，
+ * 浅色 / 深色都能得到一层可感知的「降调」底色。
+ */
+.pm-card.pm-card--off-gantt {
+	/*
+	 * 选择器必须写到两个类：只写 .pm-card--off-gantt 时与 .pm-card 优先级打平，
+	 * 而这条规则在文件里排在 .pm-card 之前 → 永远被覆盖，深浅主题都没有色差。
+	 * 第一行是兜底：不支持 color-mix 的环境退回主题变量（至少不会整体失效）。
+	 */
+	background: var(--background-secondary);
+	background: color-mix(in srgb, var(--text-muted) 15%, var(--background-primary-alt));
+}
+
 /* 组内项目框不再自画边框：外层分组卡片已经是框了，避免卡中卡 */
 .pm-panel-mode .pm-group .pm-card {
 	padding: 0;
@@ -167,6 +218,21 @@
 	color: var(--text-normal);
 	font-size: var(--font-ui-smaller);
 	cursor: pointer;
+}
+
+/*
+ * 「面板模式」开关（用户口径 2026-09-21）：工具栏里最关键的视图切换，
+ * 用强调色与普通按钮区分。未开启 = 强调色描边；开启 = 强调色填充，
+ * 一眼就知道当前在哪个模式。
+ */
+.pm-btn.pm-btn--panel-toggle {
+	border-color: var(--interactive-accent);
+	color: var(--interactive-accent);
+}
+
+.pm-btn.pm-btn--panel-toggle.is-on {
+	background-color: var(--interactive-accent);
+	color: var(--text-on-accent);
 }
 
 .pm-btn:hover {

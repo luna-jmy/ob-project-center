@@ -565,15 +565,6 @@ export class ProjectMasterSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(host)
-			.setName("甘特图隐藏已取消项目")
-			.setDesc("现有脚本行为：cancelled 项目默认不上甘特图。")
-			.addToggle((toggle) =>
-				toggle.setValue(this.plugin.settings.hideCancelledInGantt).onChange(async (value) => {
-					await this.patch({ hideCancelledInGantt: value });
-				}),
-			);
-
-		new Setting(host)
 			.setName("条上显示天数")
 			.setDesc(
 				"在甘特条上标出天数。「工作日」= 自然日 − 周末（需在 Mermaid 标签页打开「排除周末」）" +

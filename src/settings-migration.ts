@@ -217,10 +217,6 @@ export function migrateSettings(raw: unknown): ProjectMasterSettings {
 			source.maxNotesPerProject,
 			DEFAULT_SETTINGS.maxNotesPerProject,
 		),
-		hideCancelledInGantt:
-			typeof source.hideCancelledInGantt === "boolean"
-				? source.hideCancelledInGantt
-				: DEFAULT_SETTINGS.hideCancelledInGantt,
 		/*
 		 * 允许留空（用户口径 2026-09-20）：空 = 不建子文件夹，资料与项目文档同目录。
 		 * 只有类型不对/缺失才退回默认值——原来用 nonEmptyString 会把空串也退回「资料」，

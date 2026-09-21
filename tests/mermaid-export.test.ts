@@ -89,13 +89,10 @@ describe("Mermaid 导出 — 头部固定格式（SPEC F1.7，对齐 projectGant
 
 describe("Mermaid 导出 — 状态标记（脚本 done / active 约定）", () => {
 	it("marks completed as done and active as active", () => {
-		const output = exportOf(
-			[
-				projectItem({ name: "a", startDate: "2026-01-01", dueDate: "2026-01-02", status: "completed" }),
-				projectItem({ name: "b", startDate: "2026-01-01", dueDate: "2026-01-02", status: "active" }),
-			],
-			{ hideCancelledInGantt: false },
-		);
+		const output = exportOf([
+			projectItem({ name: "a", startDate: "2026-01-01", dueDate: "2026-01-02", status: "completed" }),
+			projectItem({ name: "b", startDate: "2026-01-01", dueDate: "2026-01-02", status: "active" }),
+		]);
 		expect(output).toContain("a :done, a, 2026-01-01, 2026-01-02");
 		expect(output).toContain("b :active, b, 2026-01-01, 2026-01-02");
 	});
@@ -234,25 +231,17 @@ describe("Mermaid 导出 — 与渲染层共用兜底日期", () => {
 		expect(output).toContain("只有截止 :active, 只有截止, 2026-02-03, 2026-02-10");
 	});
 
-	it("skips cancelled projects by default (matches the rendered gantt)", () => {
+	it("exports cancelled projects like any other status (2026-09-21 起取消不再被跳过)", () => {
 		const output = exportOf([
 			projectItem({
-				name: "死了",
+				name: "已取消",
 				startDate: "2026-01-01",
 				dueDate: "2026-01-02",
 				status: "cancelled",
 			}),
 		]);
-		expect(output).not.toContain("死了");
-		expect(output).toBe(
-			"```mermaid\n" +
-				"gantt\n" +
-				"    title 项目进度甘特图\n" +
-				"    dateFormat YYYY-MM-DD\n" +
-				"    axisFormat %y-%m\n" +
-				"\n" +
-				"```",
-		);
+		// 取消没有专属标签（与 draft 同级）：要不要在导出里看到它，由状态筛选决定
+		expect(output).toContain("已取消 :已取消, 2026-01-01, 2026-01-02");
 	});
 });
 

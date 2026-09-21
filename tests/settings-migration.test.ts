@@ -15,7 +15,6 @@ describe("设置迁移 — 幂等与容错（SPEC §5.5/§8）", () => {
 		expect(migrated.version).toBe(SETTINGS_VERSION);
 		expect(migrated.scanFolders).toEqual(["Projects"]);
 		expect(migrated.dateFallbackDays).toBe(7);
-		expect(migrated.hideCancelledInGantt).toBe(true);
 		expect(migrated.mermaidMarkerStart).toBe(DEFAULT_SETTINGS.mermaidMarkerStart);
 		expect(migrated.fieldMapping.dueDate).toBe("due_date");
 	});

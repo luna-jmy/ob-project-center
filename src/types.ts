@@ -8,7 +8,7 @@
  */
 
 /** 设置结构版本（新增/改动字段时递增，迁移函数见 settings-migration.ts） */
-export const SETTINGS_VERSION = 5;
+export const SETTINGS_VERSION = 6;
 
 /** 规范化项目状态（canonical，机器值全小写英文） */
 export type ProjectStatus =
@@ -186,12 +186,19 @@ export const FIELD_MAPPING_LABELS: Record<keyof FieldMappingConfig, SettingField
 export type DateFallbackStrategy = "offset7" | "mark-invalid";
 /**
  * 分组维度。
- * `none` = 不按文件夹/目标/领域切，改成按「有没有资料 + 快速项目」分三块
- * （用户口径 2026-09-20，见 grouping-service 的 groupByKind）。
+ * `none` = 不按文件夹/目标/领域切：除快速项目单独成区外，所有项目合成一份扁平列表，
+ * 一个项目一张卡片（用户口径 2026-09-21，见 grouping-service 的 groupByKind）。
  */
 export type GroupingMode = "folder" | "objective" | "area" | "none";
 /** `manual` = 用户在面板上拖动排出来的顺序（见 services/manual-order.ts） */
-export type SortMode = "due-asc" | "name" | "priority" | "manual";
+export type SortMode =
+	| "due-asc"
+	| "due-desc"
+	| "start-asc"
+	| "start-desc"
+	| "name"
+	| "priority"
+	| "manual";
 /** 时间粒度：日 → 周 → 月 → 年（年档按季度画线，用来一屏看全年） */
 export type ZoomMode = "day" | "week" | "month" | "year";
 
@@ -223,6 +230,9 @@ export const GROUPING_MODES = Object.keys(GROUPING_MODE_KEYS) as GroupingMode[];
 /** `manual` 不在设置页下拉里出现（靠拖动自动切换），但它确实是合法取值 */
 const SORT_MODE_KEYS: Record<SortMode, true> = {
 	"due-asc": true,
+	"due-desc": true,
+	"start-asc": true,
+	"start-desc": true,
 	name: true,
 	priority: true,
 	manual: true,
@@ -374,8 +384,6 @@ export interface ProjectMasterSettings {
 	defaultYearFilter: DefaultYearFilter;
 	/** 每项目笔记预览条数（现有 maxNotes 行为；0 = 不限） */
 	maxNotesPerProject: number;
-	/** 甘特图是否默认隐藏 cancelled 项目（SPEC F1.6 现有规则） */
-	hideCancelledInGantt: boolean;
 	/** 甘特条上显示的天数口径（不显示 / 自然日 / 工作日） */
 	ganttBarDuration: BarDurationMode;
 	/**
@@ -467,7 +475,6 @@ export const DEFAULT_SETTINGS: ProjectMasterSettings = {
 	defaultZoom: "month",
 	defaultYearFilter: "current",
 	maxNotesPerProject: 5,
-	hideCancelledInGantt: true,
 	ganttBarDuration: "off",
 	// 复制而非共享引用：DEFAULT_SETTINGS 会被多处读取，共享可变对象是隐患
 	ganttBarColors: { ...DEFAULT_GANTT_BAR_COLORS },
