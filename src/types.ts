@@ -10,7 +10,7 @@
 import { LanguageSetting, t } from "./i18n";
 
 /** 设置结构版本（新增/改动字段时递增，迁移函数见 settings-migration.ts） */
-export const SETTINGS_VERSION = 7;
+export const SETTINGS_VERSION = 9;
 
 /** 规范化项目状态（canonical，机器值全小写英文） */
 export type ProjectStatus =
@@ -116,6 +116,7 @@ export interface FieldMappingConfig {
 	area: string;
 	objective: string;
 	context: string;
+	remark: string;
 	projectLeader: string;
 	projectMembers: string;
 	longTerm: string;
@@ -139,6 +140,7 @@ export const DEFAULT_FIELD_MAPPING: FieldMappingConfig = {
 	area: "area",
 	objective: "objective",
 	context: "context",
+	remark: "remark",
 	projectLeader: "project-leader",
 	projectMembers: "project-members",
 	longTerm: "long-term",
@@ -180,9 +182,16 @@ const FIELD_COPY_SOURCE: Record<keyof FieldMappingConfig, SettingFieldCopy> = {
 	},
 	completionDate: { label: "项目完成日期", desc: "实际完成的那一天。" },
 	progress: { label: "完成进度字段", desc: "0–100 的百分比，显示在分组卡片上。" },
-	area: { label: "所属领域字段", desc: "可以写多个值；按「领域」分组或筛选时用。" },
+	area: {
+		label: "所属领域字段",
+		desc: "单个值；按「领域」分组或筛选时用（多值会让分组失效，所以只认一个）。",
+	},
 	objective: { label: "所属目标字段", desc: "按「目标」分组时用；Mermaid 的分节也按它划分。" },
 	context: { label: "场景字段", desc: "模板里的场景/情境信息，目前只读取、界面上未使用。" },
+	remark: {
+		label: "备注字段",
+		desc: "多行备注，随手记状态变更、决策、卡点；编辑弹窗底部可以改。",
+	},
 	projectLeader: { label: "项目负责人", desc: "单个值。" },
 	projectMembers: { label: "项目成员", desc: "可以写多个值。" },
 	longTerm: {
@@ -223,7 +232,12 @@ export type SortMode =
 	| "name"
 	| "priority"
 	| "manual";
-/** 时间粒度：日 → 周 → 月 → 年（年档按季度画线，用来一屏看全年） */
+/**
+ * 时间粒度：日 → 周 → 月 → 季度（最粗一档）。
+ *
+ * 值仍是 `year`（既存设置里存的就是它，改值要迁移），但**它画的是季度线**、
+ * 界面上也叫「季度」——标签照实叫，免得用户以为能看到整年十二个月。
+ */
 export type ZoomMode = "day" | "week" | "month" | "year";
 
 /**
@@ -372,6 +386,16 @@ export function barColorCopy(key: keyof GanttBarColors): SettingFieldCopy {
  */
 export const CARD_FONT_SCALE_RANGE = { min: 60, max: 220 } as const;
 
+/**
+ * 侧栏宽度的收敛区间（px，用户口径 2026-09-21）。
+ *
+ * 拖动（split-resizer）、设置迁移共用这一份；styles.css 里 `.pm-side` 的 min-width
+ * 与之同值（那份管首屏布局，这份管交互与落盘）。上限另有动态一层：拖动时还会按
+ * 容器宽度的比例收（见 dashboard-view 的 SIDEBAR_MAX_RATIO），否则窗口变窄后
+ * 昨天存的 800px 会把主区挤没。
+ */
+export const SIDEBAR_WIDTH_RANGE = { min: 240, max: 900 } as const;
+
 export interface ProjectMasterSettings {
 	version: number;
 	/** 项目扫描目录（多目录，SPEC §5.1） */
@@ -437,6 +461,14 @@ export interface ProjectMasterSettings {
 	 * 这些是用户 vault 里的既有约定，不随语言变——否则切一下语言就找不到自己的文件了）。
 	 */
 	uiLanguage: LanguageSetting;
+	/**
+	 * 侧栏宽度（px，用户口径 2026-09-21）：分隔条拖出来的宽度。`null` = 用样式表里的
+	 * 默认占比（34%）。
+	 *
+	 * 存 px 而不是比例：用户拖的是「多宽」，换个窗口不该自己变。上限由两处一起兜——
+	 * CSS 的 `max-width` 管首屏、拖动时的动态上限管交互，见 SIDEBAR_WIDTH_RANGE。
+	 */
+	sidebarWidth: number | null;
 	/**
 	 * 「资料/笔记」子文件夹名（新建「带文件夹」形态的项目时预建）。
 	 *
@@ -520,6 +552,8 @@ export const DEFAULT_SETTINGS: ProjectMasterSettings = {
 	cardFontScale: 100,
 	// auto = 跟随 Obsidian 界面语言（中文用户看到中文，英文用户看到英文）
 	uiLanguage: "auto",
+	// null = 侧栏用样式表里的默认占比，用户没拖过就是这个值
+	sidebarWidth: null,
 	materialsFolderName: "资料",
 	// 空串 = 不用模板，行为与「没有这个参数」时一致
 	newProjectTemplate: "",
@@ -546,9 +580,25 @@ export interface ProjectItem {
 	completionDate: string | null;
 	progress: number | null;
 	priority: string | null;
-	area: string[];
+	/**
+	 * 领域（**单值**，用户口径 2026-09-21）。
+	 *
+	 * 它是分组维度，所以只能有一个值：旧实现允许写多个、分组却只认第一个，
+	 * 其余值在分组里根本看不见（而筛选按任意值匹配，于是同一个项目会
+	 * 「筛选能筛到、分组里找不到」——用户看到的就是「分组失效」）。
+	 *
+	 * 历史笔记里 `area: [a, b]` 这种写法读取时取第一个（与旧分组行为一致，不会掉组）。
+	 */
+	area: string | null;
 	objective: string | null;
 	context: string | null;
+	/**
+	 * 备注（用户口径 2026-09-21）。多行文本，用来随手记状态变更、决策、卡点这类零碎信息。
+	 *
+	 * 模板里原先没有这个字段，但部分既有笔记自己加过——所以它走**普通字段映射**：
+	 * 用户没写就是 null，写了就原样读出来，不要求谁去补模板。
+	 */
+	remark: string | null;
 	longTerm: boolean;
 	mainProject: boolean;
 	projectId: string | null;

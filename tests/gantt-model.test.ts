@@ -293,6 +293,30 @@ describe("甘特模型 — 分节与范围（SPEC F1.1）", () => {
 		expect(model.showSectionHeaders).toBe(false);
 	});
 
+	it("shows headers for a single section when the caller asks (value grouping)", () => {
+		const items = [
+			projectItem({ name: "a", startDate: "2026-01-01", dueDate: "2026-01-02" }),
+			projectItem({ name: "b", startDate: "2026-01-03", dueDate: "2026-01-04" }),
+		];
+		const sections = [
+			{ key: "市场", name: "市场", paths: items.map((i) => i.file.path), collapsed: false },
+		];
+		// 默认口径不变：单分节时标题看着多余（folder 模式一分节一项目的遗留决定）
+		const silent = buildGanttModel(items, settings(), TODAY, { sections });
+		expect(silent.showSectionHeaders).toBe(false);
+
+		/*
+		 * 值分组（目标 / 领域）例外：标题就是信息本身，而且左面板一直显示它——
+		 * 甘特藏掉就成了「面板分组了、甘特没分组」（用户口径 2026-09-21）。
+		 */
+		const labelled = buildGanttModel(items, settings(), TODAY, {
+			sections,
+			showSectionHeaders: true,
+		});
+		expect(labelled.showSectionHeaders).toBe(true);
+		expect(labelled.sections.map((s) => s.name)).toEqual(["市场"]);
+	});
+
 	it("computes the axis range across all bars", () => {
 		const model = buildGanttModel(
 			[

@@ -5,10 +5,9 @@ import { isColorLike } from "../services/normalize";
 import {
 	EditorValues,
 	editorValuesFromItem,
-	formatListInput,
+	FieldSuggestions,
 	emptyEditorValues,
 	parseDateInput,
-	parseListInput,
 	parseNumberInput,
 	buildProjectPatch,
 } from "../services/frontmatter-mapping";
@@ -19,6 +18,8 @@ import {
 	ProjectStatus,
 	statusLabel,
 } from "../types";
+// 「已有值候选」字段（单值 datalist / 多值点选标签）与新建弹窗共用，见模块注释
+import { addListFieldSetting, addTextFieldSetting } from "./suggestion-fields";
 
 /**
  * 项目编辑 Modal（SPEC §4 F4.2/F4.3/F4.4）。
@@ -35,6 +36,11 @@ import {
 export interface EditorModalDeps {
 	getSettings(): ProjectMasterSettings;
 	getItem(path: string): ProjectItem | null;
+	/**
+	 * 已有值候选（领域 / 目标 / 负责人 / 成员），用于下拉与点选标签。
+	 * 由调用方从全部项目现算——弹窗自己不该去翻索引。
+	 */
+	getSuggestions(): FieldSuggestions;
 	/** 写回 patch（null 值 = 删除字段） */
 	save(path: string, patch: Record<string, unknown>): Promise<void>;
 	/** F4.4：清除 type 字段，使笔记脱离插件管理 */
@@ -55,6 +61,7 @@ export class ProjectEditorModal extends Modal {
 	private colorPresetsEl: HTMLElement | null = null;
 	private colorHintEl: HTMLElement | null = null;
 
+
 	constructor(
 		app: App,
 		private readonly path: string,
@@ -73,6 +80,8 @@ export class ProjectEditorModal extends Modal {
 
 		const settings = this.deps.getSettings();
 		const mapping = settings.fieldMapping;
+		// 已有值候选：领域 / 目标 / 负责人 / 成员，来自库里已经写过的值
+		const suggestions = this.deps.getSuggestions();
 
 		new Setting(contentEl)
 			.setName(t("状态"))
@@ -145,18 +154,47 @@ export class ProjectEditorModal extends Modal {
 				});
 			});
 
-		this.addListSetting(contentEl, t("领域"), this.values.area, (list) => {
-			this.values.area = list;
-		});
-		this.addTextSetting(contentEl, t("目标（objective）"), this.values.objective, (v) => {
-			this.values.objective = v;
-		});
-		this.addTextSetting(contentEl, t("项目负责人"), this.values.projectLeader, (v) => {
-			this.values.projectLeader = v;
-		});
-		this.addListSetting(contentEl, t("项目成员"), this.values.projectMembers, (list) => {
-			this.values.projectMembers = list;
-		});
+		/*
+		 * 领域是**单值**（用户口径 2026-09-21）：它是分组维度，多值会让分组失效——
+		 * 分组只认一个值，其余值在分组里根本看不见。所以与「目标」同一套输入
+		 * （可输入的下拉），不再走多值输入框 + 点选标签那一套。
+		 */
+		addTextFieldSetting(
+			contentEl,
+			t("领域"),
+			this.values.area,
+			(v) => {
+				this.values.area = v;
+			},
+			{ desc: t("单个值；按领域分组与筛选都看这一个"), suggestions: suggestions.area },
+		);
+		addTextFieldSetting(
+			contentEl,
+			t("目标（objective）"),
+			this.values.objective,
+			(v) => {
+				this.values.objective = v;
+			},
+			{ suggestions: suggestions.objective },
+		);
+		addTextFieldSetting(
+			contentEl,
+			t("项目负责人"),
+			this.values.projectLeader,
+			(v) => {
+				this.values.projectLeader = v;
+			},
+			{ suggestions: suggestions.projectLeader },
+		);
+		addListFieldSetting(
+			contentEl,
+			t("项目成员"),
+			this.values.projectMembers,
+			(list) => {
+				this.values.projectMembers = list;
+			},
+			{ suggestions: suggestions.projectMembers },
+		);
 
 		new Setting(contentEl)
 			.setName(t("长期项目"))
@@ -187,6 +225,24 @@ export class ProjectEditorModal extends Modal {
 			cls: "pm-modal__hint",
 			text: `写回字段：${mapping.status} / ${mapping.priority} / ${mapping.startDate} / ${mapping.dueDate} / ${mapping.area} / ${mapping.color} …（可在设置中重映射）`,
 		});
+
+		/*
+		 * 备注放**最底部**（用户口径 2026-09-21）：改状态只是它的用法之一，
+		 * 也用来记决策、卡点、回顾——挤在状态下会给人"只在改状态时才填"的错觉。
+		 * 多行文本域：备注通常不止一句。
+		 */
+		new Setting(contentEl)
+			.setName(t("备注"))
+			.setDesc(t("随手记状态变更、决策、卡点；存进 frontmatter 的备注字段。"))
+			.addTextArea((area) => {
+				area.setValue(this.values.remark ?? "");
+				area.inputEl.rows = 4;
+				area.inputEl.addClass("pm-modal__remark");
+				area.onChange((value) => {
+					const trimmed = value.trim();
+					this.values.remark = trimmed.length === 0 ? null : trimmed;
+				});
+			});
 
 		this.renderActions(contentEl);
 	}
@@ -375,38 +431,6 @@ export class ProjectEditorModal extends Modal {
 				assign(parseDateInput(value));
 			});
 		});
-	}
-
-	private addTextSetting(
-		host: HTMLElement,
-		name: string,
-		initial: string | null,
-		assign: (value: string | null) => void,
-	): void {
-		new Setting(host).setName(name).addText((text) => {
-			text.setValue(initial ?? "");
-			text.onChange((value) => {
-				const trimmed = value.trim();
-				assign(trimmed.length === 0 ? null : trimmed);
-			});
-		});
-	}
-
-	private addListSetting(
-		host: HTMLElement,
-		name: string,
-		initial: string[],
-		assign: (value: string[]) => void,
-	): void {
-		new Setting(host)
-			.setName(name)
-			.setDesc(t("多个值用逗号分隔"))
-			.addText((text) => {
-				text.setValue(formatListInput(initial));
-				text.onChange((value) => {
-					assign(parseListInput(value));
-				});
-			});
 	}
 
 	private displayName(): string {

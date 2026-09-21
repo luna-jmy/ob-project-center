@@ -52,8 +52,8 @@ export const EN: Record<string, string> = {
 	完成进度字段: "Progress field",
 	"0–100 的百分比，显示在分组卡片上。": "A 0–100 percentage shown on the card.",
 	所属领域字段: "Area field",
-	"可以写多个值；按「领域」分组或筛选时用。":
-		"May hold several values; used when grouping or filtering by area.",
+	"单个值；按「领域」分组或筛选时用（多值会让分组失效，所以只认一个）。":
+		"A single value; used when grouping or filtering by area (several values would break grouping, so only one is kept).",
 	所属目标字段: "Objective field",
 	"按「目标」分组时用；Mermaid 的分节也按它划分。":
 		"Used when grouping by objective; also drives Mermaid sections.",
@@ -194,16 +194,20 @@ export const EN: Record<string, string> = {
 	按领域: "By area",
 	"不分组（按是否有资料）": "No grouping (flat)",
 	默认排序: "Default sort",
-	截止日升序: "Due date ↑",
+	"截止日 ↑": "Due date ↑",
+	"截止日 ↓": "Due date ↓",
+	"开始日 ↑": "Start date ↑",
+	"开始日 ↓": "Start date ↓",
 	项目名: "Name",
 	优先级: "Priority",
+	手动排序: "Manual order",
 	默认缩放: "Default zoom",
 	"各档位的每日像素宽度：日 {day}px / 周 {week}px / 月 {month}px":
 		"Pixels per day: day {day}px / week {week}px / month {month}px",
 	日: "Day",
 	周: "Week",
 	月: "Month",
-	"年（一屏看全年）": "Year (whole year on screen)",
+	季度: "Quarter",
 	默认年度筛选: "Default year filter",
 	"打开视图时「项目开始年度」的默认值。默认只显示本年度启动的项目；改为「不限年度」可一进来就看到全部项目。":
 		"Initial value of the start-year filter. The default shows only projects starting this year; pick a different one to see everything at once.",
@@ -317,6 +321,18 @@ export const EN: Record<string, string> = {
 	"仅从插件管理中移除（删除 type 字段），不会删除笔记":
 		"Only removes it from the plugin (deletes the type field); the note itself is kept.",
 	"再点一次确认清除": "Click again to confirm",
+	备注: "Remark",
+	"单个值；按领域分组与筛选都看这一个":
+		"Single value — area grouping and filtering both key off it",
+	"拖动调整侧栏宽度": "Drag to resize the sidebar",
+	"拖动调整侧栏宽度（方向键也能调）": "Drag to resize the sidebar (arrow keys work too)",
+	"随手记状态变更、决策、卡点；存进 frontmatter 的备注字段。":
+		"Jot down status changes, decisions or blockers; stored in the frontmatter remark field.",
+	点一下追加: "Click to add",
+	点一下移除: "Click to remove",
+	备注字段: "Remark field",
+	"多行备注，随手记状态变更、决策、卡点；编辑弹窗底部可以改。":
+		"A multi-line remark for status changes, decisions or blockers; editable at the bottom of the editor.",
 	"点色块选主题色；也可直接填 #ff8800、var(--color-blue)、颜色名。留空则按项目状态用默认色。":
 		"Click a swatch for a theme color, or type #ff8800, var(--color-blue) or a color name. Empty uses the status color.",
 	"默认（按状态）": "Default (by status)",
@@ -349,8 +365,7 @@ export const EN: Record<string, string> = {
 	退出面板模式: "Exit panel mode",
 	甘特图: "Gantt",
 	"Mermaid 预览": "Mermaid preview",
-	// 月 / 周 / 日 已在设置页段定义（同一句中文共用一条翻译）；「年」在那里是长句，另列
-	年: "Year",
+	// 月 / 周 / 日 已在设置页段定义（同一句中文共用一条翻译），最粗一档是「季度」
 	"{unit}刻度": "{unit} scale",
 	"时间粒度：{unit}刻度": "Zoom: {unit} scale",
 	自定义: "Custom",

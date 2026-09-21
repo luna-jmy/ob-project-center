@@ -27,9 +27,10 @@ function item(overrides: Partial<ProjectItem> & { name: string }): ProjectItem {
 		completionDate: null,
 		progress: null,
 		priority: null,
-		area: [],
+		area: null,
 		objective: null,
 		context: null,
+		remark: null,
 		longTerm: false,
 		mainProject: false,
 		projectId: null,
@@ -89,27 +90,32 @@ describe("applyFilters — status 多选（F2.1）", () => {
 	});
 });
 
+/*
+ * 领域是**单值**（用户口径 2026-09-21）：项目只可能落在一个领域上，所以这里判的是
+ * 「这个项目的领域在不在选中集合里」。筛选器本身仍可多选——那是「看哪几个领域」，
+ * 与字段能否写多个值是两件事。
+ */
 describe("applyFilters — area 筛选（F2.2）", () => {
 	it("selected mode: OR across multiple selected areas", () => {
 		const items = [
-			item({ name: "a", area: ["CIMS工作"] }),
-			item({ name: "b", area: ["个人成长"] }),
-			item({ name: "c", area: ["CIMS工作", "个人成长"] }),
-			item({ name: "d", area: [] }),
+			item({ name: "a", area: "CIMS工作" }),
+			item({ name: "b", area: "个人成长" }),
+			item({ name: "c", area: "家庭" }),
+			item({ name: "d", area: null }),
 		];
 		const state = {
 			...defaultFilterState(),
 			areaMode: "selected" as const,
 			areas: ["CIMS工作", "个人成长"],
 		};
-		expect(applyFilters(items, state).map((i) => i.file.name)).toEqual(["a", "b", "c"]);
+		expect(applyFilters(items, state).map((i) => i.file.name)).toEqual(["a", "b"]);
 	});
 
-	it("include-current mode: keep projects intersecting current areas", () => {
+	it("include-current mode: keep projects matching the current note's area", () => {
 		const items = [
-			item({ name: "a", area: ["CIMS工作"] }),
-			item({ name: "b", area: ["家庭"] }),
-			item({ name: "none", area: [] }),
+			item({ name: "a", area: "CIMS工作" }),
+			item({ name: "b", area: "家庭" }),
+			item({ name: "none", area: null }),
 		];
 		const state = {
 			...defaultFilterState(),
@@ -119,11 +125,11 @@ describe("applyFilters — area 筛选（F2.2）", () => {
 		expect(applyFilters(items, state).map((i) => i.file.name)).toEqual(["a"]);
 	});
 
-	it("exclude-current mode: drop intersecting, keep disjoint (incl. empty area)", () => {
+	it("exclude-current mode: drop matching, keep the rest (projects without an area included)", () => {
 		const items = [
-			item({ name: "a", area: ["CIMS工作"] }),
-			item({ name: "b", area: ["家庭"] }),
-			item({ name: "none", area: [] }),
+			item({ name: "a", area: "CIMS工作" }),
+			item({ name: "b", area: "家庭" }),
+			item({ name: "none", area: null }),
 		];
 		const state = {
 			...defaultFilterState(),
@@ -322,9 +328,9 @@ describe("sortProjects（F2.6）", () => {
 describe("applyFilters — 组合行为（F2.7 一套管道两处渲染）", () => {
 	it("conditions compose with AND and count via input length", () => {
 		const items = [
-			item({ name: "官网改版", status: "active", area: ["CIMS工作"], dueDate: "2026-09-10" }),
-			item({ name: "官网移动端", status: "draft", area: ["CIMS工作"], dueDate: "2026-09-20" }),
-			item({ name: "家庭旅行", status: "active", area: ["家庭"], dueDate: "2026-09-05" }),
+			item({ name: "官网改版", status: "active", area: "CIMS工作", dueDate: "2026-09-10" }),
+			item({ name: "官网移动端", status: "draft", area: "CIMS工作", dueDate: "2026-09-20" }),
+			item({ name: "家庭旅行", status: "active", area: "家庭", dueDate: "2026-09-05" }),
 		];
 		const state = {
 			...defaultFilterState(),
@@ -549,7 +555,7 @@ describe("explainHidden（为什么这个项目看不见）", () => {
 		).toContain("日期区间");
 
 		const areaFiltered = { ...defaultFilterState(), areas: ["市场"] };
-		expect(explainHidden(item({ name: "a", area: ["家庭"] }), areaFiltered, { today: TODAY })).toContain(
+		expect(explainHidden(item({ name: "a", area: "家庭" }), areaFiltered, { today: TODAY })).toContain(
 			"领域",
 		);
 	});

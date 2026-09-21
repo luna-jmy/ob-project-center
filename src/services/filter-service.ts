@@ -277,14 +277,20 @@ function filterByArea(items: ProjectItem[], state: FilterState): ProjectItem[] {
 	switch (state.areaMode) {
 		case "selected":
 			if (state.areas.length === 0) return items;
-			return items.filter((item) => item.area.some((a) => state.areas.includes(a)));
+			// 领域是单值（用户口径 2026-09-21）：项目只可能落在其中一个候选值上
+			return items.filter(
+				(item) => item.area !== null && state.areas.includes(item.area),
+			);
 		case "include-current":
 			if (state.currentAreas.length === 0) return items;
-			return items.filter((item) => item.area.some((a) => state.currentAreas.includes(a)));
+			return items.filter(
+				(item) => item.area !== null && state.currentAreas.includes(item.area),
+			);
 		case "exclude-current":
 			if (state.currentAreas.length === 0) return items;
+			// 没写领域的项目不算「命中当前领域」，所以排除模式下要留着它（与旧行为一致）
 			return items.filter(
-				(item) => !item.area.some((a) => state.currentAreas.includes(a)),
+				(item) => item.area === null || !state.currentAreas.includes(item.area),
 			);
 	}
 }

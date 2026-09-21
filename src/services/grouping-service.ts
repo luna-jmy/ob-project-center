@@ -438,7 +438,7 @@ function groupByValue(
 		const key =
 			settings.defaultGrouping === "objective"
 				? (item.objective ?? FALLBACK_KEY)
-				: (item.area[0] ?? FALLBACK_KEY);
+				: (item.area ?? FALLBACK_KEY);
 		pushTo(buckets, key, item);
 	}
 

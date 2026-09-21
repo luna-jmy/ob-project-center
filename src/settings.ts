@@ -507,9 +507,18 @@ export class ProjectMasterSettingTab extends PluginSettingTab {
 				}),
 		);
 
+		/*
+		 * 排序档与筛选栏**逐档对齐**（用户口径 2026-09-21）：筛选栏新增的开始日升降序、
+		 * 截止日降序此前没同步到这里，用户在这儿选不到——两边选项一样多、措辞也一致，
+		 * 才不会再出现「界面上有的档位，设置里选不到」。
+		 * `manual` 仍然不进设置页：它靠拖动自动切换，不是用户挑的档位。
+		 */
 		new Setting(host).setName(t("默认排序")).addDropdown((dropdown) =>
 			dropdown
-				.addOption("due-asc", t("截止日升序"))
+				.addOption("due-asc", t("截止日 ↑"))
+				.addOption("due-desc", t("截止日 ↓"))
+				.addOption("start-asc", t("开始日 ↑"))
+				.addOption("start-desc", t("开始日 ↓"))
 				.addOption("name", t("项目名"))
 				.addOption("priority", t("优先级"))
 				.setValue(this.plugin.settings.defaultSort)
@@ -532,7 +541,7 @@ export class ProjectMasterSettingTab extends PluginSettingTab {
 					.addOption("day", t("日"))
 					.addOption("week", t("周"))
 					.addOption("month", t("月"))
-					.addOption("year", t("年（一屏看全年）"))
+					.addOption("year", t("季度"))
 					.setValue(this.plugin.settings.defaultZoom)
 					.onChange(async (value) => {
 						await this.patch({ defaultZoom: value as ZoomMode });

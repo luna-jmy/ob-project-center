@@ -32,15 +32,52 @@
 	gap: var(--size-4-2);
 }
 
+/*
+ * 侧栏宽度可拖（用户口径 2026-09-21）。
+ *
+ * 默认 34%；拖过分隔条后由视图写 `--pm-side-width`（px）覆盖。走**变量**而不是内联
+ * flex/width 是有原因的：面板模式下侧栏要吃满整页，内联样式会把那条规则按死。
+ *
+ * `min-width` 与 split-resizer 的拖动下限同值（240px），`max-width` 与
+ * dashboard-view 的 SIDEBAR_MAX_RATIO 同值——一个管首屏布局、一个管拖动。
+ */
 .pm-side {
-	flex: 0 0 34%;
-	max-width: 460px;
+	flex: 0 0 var(--pm-side-width, 34%);
+	max-width: 60%;
 	min-width: 240px;
 	overflow: auto;
 	/* 面板滚到底时不要把滚动接力给整页（否则会出现「整页顶出去」的错觉） */
 	overscroll-behavior: contain;
 	padding-right: var(--size-4-1);
 	border-right: 1px solid var(--background-modifier-border);
+}
+
+/*
+ * 分栏拖动条：细，但不难看。
+ *
+ * 6px 是「好看」与「好点」的折中：再细指针抓不住。命中区靠自身宽度而不是伪元素——
+ * 面板本身不密，不需要把热区藏成 2px 视觉 + 12px 触点那一套。
+ */
+.pm-side-resizer {
+	flex: 0 0 auto;
+	align-self: stretch;
+	width: 6px;
+	cursor: col-resize;
+	border-radius: var(--radius-s);
+	background-color: transparent;
+	transition: background-color 120ms ease;
+}
+
+.pm-side-resizer:hover,
+.pm-side-resizer.is-dragging,
+.pm-side-resizer:focus-visible {
+	background-color: var(--interactive-accent);
+}
+
+/* 拖动中禁掉选中，否则一路把卡片文字刷蓝（类由 split-resizer 加在 body 上） */
+body.pm-resizing {
+	user-select: none;
+	cursor: col-resize;
 }
 
 /*
@@ -70,7 +107,9 @@
 	overflow: hidden;
 }
 
-.pm-body--collapsed .pm-side {
+.pm-body--collapsed .pm-side,
+/* 侧栏收起时分隔条也没意义（留着会变成贴边的一条竖线） */
+.pm-body--collapsed .pm-side-resizer {
 	display: none;
 }
 
@@ -92,6 +131,11 @@
 }
 
 .pm-panel-mode .pm-main {
+	display: none;
+}
+
+/* 面板模式下面板铺满整页，没有分栏可拖 */
+.pm-panel-mode .pm-side-resizer {
 	display: none;
 }
 
@@ -378,6 +422,49 @@
 	color: var(--text-faint);
 	font-size: var(--font-ui-smaller);
 	cursor: help;
+}
+
+/* ── 编辑弹窗里的"已有值"点选标签（多值字段用，用户口径 2026-09-21） ── */
+
+.pm-value-chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--size-2-2);
+	/* 往上贴紧它所属的输入行：它是 setting 之后的独立一块，别把它顶得太远 */
+	margin: calc(-1 * var(--size-2-2)) 0 var(--size-4-2) 0;
+}
+
+.pm-value-chip {
+	max-width: 100%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	padding: 0 var(--size-2-3);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background-color: transparent;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	cursor: pointer;
+}
+
+.pm-value-chip:hover {
+	color: var(--text-normal);
+	background-color: var(--background-modifier-hover);
+}
+
+/* 已选中的值：点一下是移除，所以选中态要明确 */
+.pm-value-chip.is-active {
+	border-color: var(--interactive-accent);
+	background-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+}
+
+/* 备注文本域：撑满宽度、够写几行、可手动拉高 */
+.pm-modal__remark {
+	width: 100%;
+	min-height: 4.5em;
+	resize: vertical;
 }
 
 /* 出口按钮靠右成组（导出代码 / 写入笔记 / 导出 SVG / 导出 JPG；窄了就换行，见 __bar 的 wrap） */

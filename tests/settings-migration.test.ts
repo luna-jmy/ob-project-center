@@ -5,6 +5,7 @@ import {
 	DEFAULT_SETTINGS,
 	GROUPING_MODES,
 	SETTINGS_VERSION,
+	SIDEBAR_WIDTH_RANGE,
 	SORT_MODES,
 	ZOOM_MODES,
 } from "../src/types";
@@ -134,6 +135,17 @@ describe("设置迁移 — 幂等与容错（SPEC §5.5/§8）", () => {
 		expect(migrateSettings(null).defaultYearFilter).toBe("current");
 		expect(migrateSettings({ defaultYearFilter: "none" }).defaultYearFilter).toBe("none");
 		expect(migrateSettings({ defaultYearFilter: "bogus" }).defaultYearFilter).toBe("current");
+	});
+
+	it("clamps the sidebar width and falls back to auto on junk", () => {
+		// null = 用默认占比；有效值收敛到区间内；非法值不猜（同样回 null）
+		expect(migrateSettings({ sidebarWidth: 420 }).sidebarWidth).toBe(420);
+		expect(migrateSettings({ sidebarWidth: 5000 }).sidebarWidth).toBe(SIDEBAR_WIDTH_RANGE.max);
+		expect(migrateSettings({ sidebarWidth: 10 }).sidebarWidth).toBe(SIDEBAR_WIDTH_RANGE.min);
+		expect(migrateSettings({ sidebarWidth: 333.6 }).sidebarWidth).toBe(334);
+		expect(migrateSettings({ sidebarWidth: "wide" }).sidebarWidth).toBeNull();
+		expect(migrateSettings({ sidebarWidth: null }).sidebarWidth).toBeNull();
+		expect(migrateSettings({}).sidebarWidth).toBeNull();
 	});
 
 	it("ships safe defaults for the manual-order and mermaid-option fields", () => {

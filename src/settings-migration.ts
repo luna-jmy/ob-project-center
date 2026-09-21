@@ -12,6 +12,7 @@ import {
 	ProjectMasterSettings,
 	ProjectStatus,
 	SETTINGS_VERSION,
+	SIDEBAR_WIDTH_RANGE,
 	SORT_MODES,
 	ZOOM_MODES,
 } from "./types";
@@ -133,6 +134,18 @@ function statusOrderList(value: unknown): ProjectStatus[] {
 	return deduped.length > 0 ? deduped : [...PROJECT_STATUSES];
 }
 
+/**
+ * 侧栏宽度：`null` / 非法 → `null`（回到默认占比）；有效值收敛到区间内。
+ *
+ * 越界**收敛**而不是丢弃：用户拖到区间上限时窗口只有 700，存 900 是合理意图，
+ * 换回大窗口就该是 900——丢弃的话换个窗口宽度就「莫名其妙变回默认」。
+ */
+function sidebarWidth(value: unknown): number | null {
+	if (typeof value !== "number" || !Number.isFinite(value)) return null;
+	const { min, max } = SIDEBAR_WIDTH_RANGE;
+	return Math.min(Math.max(Math.round(value), min), max);
+}
+
 /** 字段映射清洗：逻辑字段名固定，物理字段名逐项校验 */
 function fieldMapping(value: unknown): FieldMappingConfig {
 	if (!isRecord(value)) return { ...DEFAULT_FIELD_MAPPING };
@@ -197,6 +210,7 @@ export function migrateSettings(raw: unknown): ProjectMasterSettings {
 		fieldMapping: fieldMapping(source.fieldMapping),
 		ganttBarColors: ganttBarColors(source.ganttBarColors),
 		cardFontScale: cardFontScale(source.cardFontScale),
+		sidebarWidth: sidebarWidth(source.sidebarWidth),
 		// 界面语言：认不出的值退回 auto（跟随宿主），不会因为写错就把界面锁死在某一语言
 		uiLanguage: enumValue(
 			source.uiLanguage,

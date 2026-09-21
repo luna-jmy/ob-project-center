@@ -51,7 +51,7 @@ describe("buildProjectItem — 识别规则（SPEC §2.1/§2.2）", () => {
 		expect(result.item?.status).toBe("active");
 		expect(result.item?.startDate).toBe("2026-09-01");
 		expect(result.item?.dueDate).toBe("2026-09-15");
-		expect(result.item?.area).toEqual(["CIMS工作"]);
+		expect(result.item?.area).toBe("CIMS工作");
 		expect(result.item?.file.path).toBe(fileInfo.path);
 		expect(result.issues).toEqual([]);
 	});
@@ -117,14 +117,37 @@ describe("buildProjectItem — 规范化行为（SPEC §2.3）", () => {
 		expect(result.item?.dueDate).toBe("2026-09-15");
 	});
 
-	it("normalizes area and members single values to arrays", () => {
+	it("normalizes a single area to that value, and single members to an array", () => {
 		const result = buildProjectItem(
 			fm({ "project-members": "Luna" }),
 			fileInfo,
 			DEFAULT_SETTINGS,
 		);
-		expect(result.item?.area).toEqual(["CIMS工作"]);
+		expect(result.item?.area).toBe("CIMS工作");
 		expect(result.item?.projectMembers).toEqual(["Luna"]);
+	});
+
+	/*
+	 * 领域是单值（用户口径 2026-09-21）：它是分组维度，多值会让分组失效——旧实现
+	 * 允许写多个，分组却只认第一个，其余值在分组里根本看不见。
+	 *
+	 * 老笔记里的数组写法按「取第一个」读入：与旧分组行为完全一致，所以改完之后
+	 * 这些项目不会突然从某个分组掉进「未设置」。
+	 */
+	it("takes the first value from a legacy multi-value area", () => {
+		const legacy = buildProjectItem(
+			fm({ area: ["市场", "运营"] }),
+			fileInfo,
+			DEFAULT_SETTINGS,
+		);
+		expect(legacy.item?.area).toBe("市场");
+
+		// 空数组 / 空白值 = 没写领域，与缺失同义
+		const empty = buildProjectItem(fm({ area: [] }), fileInfo, DEFAULT_SETTINGS);
+		expect(empty.item?.area).toBeNull();
+
+		const blank = buildProjectItem(fm({ area: ["", "  "] }), fileInfo, DEFAULT_SETTINGS);
+		expect(blank.item?.area).toBeNull();
 	});
 
 	it("reports invalid dates as issues and stores null (no silent fix)", () => {

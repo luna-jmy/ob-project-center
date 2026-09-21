@@ -9,12 +9,15 @@ import { ProjectEditorModal } from "../modals/project-editor-modal";
 import { FilterBar } from "../panels/filter-bar";
 import { GroupPanel } from "../panels/group-panel";
 import { MermaidOptions, MermaidPanel } from "../panels/mermaid-panel";
+import { clampSplitWidth, SplitResizer } from "../panels/split-resizer";
 import {
 	exportImageName,
 	MermaidImageExport,
 	readAttachmentSetting,
 	resolveAttachmentFolder,
 } from "../panels/svg-image";
+import { collectSuggestions } from "../services/frontmatter-mapping";
+import { normalizeSingleValue } from "../services/normalize";
 import { DataIssue } from "../services/project-item";
 import { ProjectService } from "../services/project-service";
 import {
@@ -44,7 +47,14 @@ import {
 	mergeVisibleOrder,
 	projectOrderKey,
 } from "../services/manual-order";
-import { GroupingMode, ProjectItem, ProjectMasterSettings, SortMode, ZoomMode } from "../types";
+import {
+	GroupingMode,
+	ProjectItem,
+	ProjectMasterSettings,
+	SIDEBAR_WIDTH_RANGE,
+	SortMode,
+	ZoomMode,
+} from "../types";
 import { todayIso } from "../utils/date";
 import { pickViewIcon } from "../utils/icon";
 
@@ -57,7 +67,8 @@ const ZOOM_LADDER: readonly ZoomMode[] = ["year", "month", "week", "day"];
 function zoomLabel(mode: ZoomMode): string {
 	switch (mode) {
 		case "year":
-			return t("年");
+			// 这一档画的是**季度**线（见 gantt/time-scale.ts），标签就照实叫季度
+			return t("季度");
 		case "month":
 			return t("月");
 		case "week":
@@ -72,6 +83,15 @@ type TabId = "gantt" | "mermaid";
 
 /** 只对甘特视图有意义的工具栏控件：面板模式下隐藏（用户口径 2026-09-20） */
 const GANTT_ONLY_CLASS = "pm-toolbar__gantt-only";
+
+/**
+ * 侧栏最多占的分栏比例（用户口径 2026-09-21）。
+ *
+ * 与 styles.css 里 `.pm-side` 的 `max-width` 是同一口径：那份管首屏（还没拖过时的
+ * 上限），这份管交互（拖动时能拖多宽）。两处都写是因为一个在 CSS、一个在拖动逻辑里，
+ * 没法共用同一个常量——改的时候要一起改。
+ */
+const SIDEBAR_MAX_RATIO = 0.6;
 /** Tab 标题（函数求值，理由同 zoomLabel） */
 function tabLabel(id: TabId): string {
 	return id === "gantt" ? t("甘特图") : t("Mermaid 预览");
@@ -132,6 +152,8 @@ export class DashboardView extends ItemView {
 	 */
 	private activeTab: TabId = "gantt";
 	private sideCollapsed = false;
+	/** 侧栏元素：拖动分隔条时要往里写宽度变量（用户口径 2026-09-21） */
+	private sideEl: HTMLElement | null = null;
 	/** 面板模式（面板内容铺满整页的卡片视图）。与「收起侧栏」是两件事，互不替代 */
 	private panelMode = false;
 	/** 进面板模式前甘特时间轴的滚动位置（祖先 display:none 会把它清零，退出时还原） */
@@ -386,6 +408,34 @@ export class DashboardView extends ItemView {
 		this.bodyEl = body;
 
 		const side = body.createDiv({ cls: "pm-side" });
+		this.sideEl = side;
+		/*
+		 * 侧栏宽度可拖（用户口径 2026-09-21）：分隔条夹在侧栏与主区之间。
+		 *
+		 * 宽度写进 body 上的 CSS 变量，而不是侧栏的内联样式：面板模式下侧栏要吃满整页
+		 * （`.pm-panel-mode .pm-side { flex: 1 1 auto }`），内联样式会把它按死、让位失败。
+		 */
+		const resizer = body.createDiv({
+			cls: "pm-side-resizer",
+			attr: {
+				role: "separator",
+				"aria-orientation": "vertical",
+				"aria-label": t("拖动调整侧栏宽度"),
+				tabindex: "0",
+				title: t("拖动调整侧栏宽度（方向键也能调）"),
+			},
+		});
+		new SplitResizer(this, {
+			container: body,
+			target: side,
+			handle: resizer,
+			min: SIDEBAR_WIDTH_RANGE.min,
+			// 动态上限：再宽也要给主区留出 40%（窗口变窄时旧宽度会挤掉主区）
+			max: () => Math.min(SIDEBAR_WIDTH_RANGE.max, body.clientWidth * SIDEBAR_MAX_RATIO),
+			onResize: (width) => body.style.setProperty("--pm-side-width", `${width}px`),
+			onCommit: (width) => void this.persistSidebarWidth(width),
+		});
+		this.applySidebarWidth();
 		this.groupPanel = new GroupPanel(this, side, {
 			onOpenNote: (path) => this.openNote(path),
 			onFocusProject: (path) => this.focusProjectInGantt(path),
@@ -512,6 +562,17 @@ export class DashboardView extends ItemView {
 
 		const model = buildGanttModel(ordered, settings, today, {
 			sections,
+			/*
+			 * 值分组（目标 / 领域）强制显示分节名：这时标题就是信息本身，而且左面板
+			 * 一直显示它——甘特在只剩一节时藏掉标题，就成了「面板分组了、甘特没分组」
+			 * （用户口径 2026-09-21）。
+			 *
+			 * folder / 不分组维持默认口径（单节标题常与组内项目重名，是纯噪声）。
+			 */
+			showSectionHeaders:
+				this.groupingMode === "objective" || this.groupingMode === "area"
+					? true
+					: undefined,
 			axisRange: this.resolveAxisRange(today) ?? undefined,
 		});
 		this.lastModel = model;
@@ -566,11 +627,11 @@ export class DashboardView extends ItemView {
 		return { shown: filtered.length, total: all.length };
 	}
 
-	/** area 候选从项目集合动态收集（F2.2，现有脚本行为） */
+	/** 领域候选从项目集合动态收集（F2.2）：领域是单值，一个项目贡献一个候选 */
 	private collectAreas(): string[] {
 		const areas = new Set<string>();
 		for (const item of this.host.getProjects()) {
-			for (const area of item.area) areas.add(area);
+			if (item.area !== null) areas.add(item.area);
 		}
 		return [...areas].sort();
 	}
@@ -580,17 +641,19 @@ export class DashboardView extends ItemView {
 		return collectYears(this.host.getProjects());
 	}
 
-	/** 当前活动笔记的 area（include/exclude 快捷档的参照值，F2.2） */
+	/**
+	 * 当前活动笔记的领域（include/exclude 快捷档的参照值，F2.2）。
+	 *
+	 * 返回数组是因为筛选状态里那一格按「参照值集合」表示；但领域是单值（用户口径
+	 * 2026-09-21），所以这里最多一个元素。读取走索引层同一口径——老笔记写成数组时
+	 * 取第一个，免得「索引说属市场、快捷档说属市场+运营」这种自相矛盾。
+	 */
 	private currentNoteAreas(): string[] {
 		const file = this.host.app.workspace.getActiveFile();
 		if (file === null) return [];
 		const frontmatter = readFrontmatterOf(this.host.app, file);
-		const raw = frontmatter[this.host.settings.fieldMapping.area];
-		if (typeof raw === "string") return raw.trim().length > 0 ? [raw.trim()] : [];
-		if (Array.isArray(raw)) {
-			return raw.filter((entry): entry is string => typeof entry === "string");
-		}
-		return [];
+		const area = normalizeSingleValue(frontmatter[this.host.settings.fieldMapping.area]);
+		return area === null ? [] : [area];
 	}
 
 	/** 年度筛选的人话描述（放在统计行里，让用户一眼知道列表为什么变短了） */
@@ -708,6 +771,27 @@ export class DashboardView extends ItemView {
 	 * `paths` 是甘特侧栏里的可见顺序，其中不含「已取消 / 缺日期」这类没上甘特图的项目，
 	 * 所以先把它并回该分组的完整序列再落盘（否则被跳过的项目会被顶到组尾）。
 	 */
+	/** 把设置里的侧栏宽度写到分栏变量上（null = 回到样式表里的默认占比） */
+	private applySidebarWidth(): void {
+		const body = this.bodyEl;
+		if (body === null) return;
+		const width = this.host.settings.sidebarWidth;
+		if (width === null) body.style.removeProperty("--pm-side-width");
+		else body.style.setProperty("--pm-side-width", `${width}px`);
+	}
+
+	/**
+	 * 侧栏宽度落盘（松手/键盘调整时才调，见 SplitResizer 的说明）。
+	 *
+	 * 宽度只影响布局、不影响索引，所以走 persistSettings（不触发全库重扫）。
+	 */
+	private async persistSidebarWidth(width: number): Promise<void> {
+		const clamped = clampSplitWidth(width, SIDEBAR_WIDTH_RANGE.min, SIDEBAR_WIDTH_RANGE.max);
+		if (this.host.settings.sidebarWidth === clamped) return;
+		this.host.settings.sidebarWidth = clamped;
+		await this.host.persistSettings();
+	}
+
 	private async reorderProjects(groupKey: string, paths: string[]): Promise<void> {
 		const settings = this.host.settings;
 		const key = projectOrderKey(this.groupingMode, groupKey);
@@ -944,6 +1028,8 @@ export class DashboardView extends ItemView {
 			getSettings: () => this.host.settings,
 			getItem: (target) =>
 				this.host.getProjects().find((item) => item.file.path === target) ?? null,
+			// 已有值候选现算（每次打开弹窗一次）：索引一变，下拉里的值就是最新的
+			getSuggestions: () => collectSuggestions(this.host.getProjects()),
 			save: (target, patch) => this.host.service.patchFrontmatter(target, patch),
 			clearProjectType: (target) =>
 				this.host.service.patchFrontmatter(target, {
@@ -995,6 +1081,8 @@ export class DashboardView extends ItemView {
 	private openNewProjectModal(): void {
 		new NewProjectModal(this.host.app, {
 			getSettings: () => this.host.settings,
+			// 与编辑弹窗同一份候选值：能在新建时选到已有值，才不用事后改
+			getSuggestions: () => collectSuggestions(this.host.getProjects()),
 			createProject: (input) => this.host.service.createProject(input),
 			openNote: (path) => this.openNote(path),
 			onDone: () => this.host.requestRefresh(),

@@ -74,6 +74,10 @@ export function exportMermaid(model: GanttModel, settings: ProjectMasterSettings
 	 * 导出（尤其「写入笔记」）却把它写回去，等于白折叠。现在：
 	 * - 折叠的分节整体不出现（连分节头都不出）；
 	 * - 分节头按**可见**分节数判断，只剩一个可见分节时不出 section 行（对齐 projectGantt.js 口径）。
+ *
+ * 最后这条是**确认过的口径**，不是漏改：2026-09-21 修甘特分节表头时曾问过要不要一并
+ * 对齐（让单领域也出 `section 市场`），用户明确回答「只有一个领域 section 的时候
+ * mermaid 不显示 section 是对的，不用改」。别顺手改成与甘特一致。
 	 */
 	const sections = model.sections.filter((section) => !section.collapsed);
 	const emitSectionHeaders = sections.length > 1;

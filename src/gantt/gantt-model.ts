@@ -104,6 +104,17 @@ export interface GanttModelOptions {
 	 */
 	sections?: GroupSectionSpec[];
 	/**
+	 * 强制显示分节表头（可选）。
+	 *
+	 * 默认口径是「分节数 > 1 或存在折叠分节」——只分出一节时标题看似多余。这是
+	 * folder 模式「一分节一项目」时代的决定（那时标题与组内唯一的项目重名，纯噪声）。
+	 *
+	 * 但**值分组（目标 / 领域）不一样**：标题就是信息本身（「这些项目属于市场」），
+	 * 而且左侧面板一直显示分组名。甘特在只剩一节时把标题藏掉，用户看到的就是
+	 * 「面板分组了、甘特没分组」（用户口径 2026-09-21）。由调用方按分组模式决定是否传它。
+	 */
+	showSectionHeaders?: boolean;
+	/**
 	 * 强制扩大的时间轴范围（来自筛选栏的日期区间）。
 	 * 选了「本月」时，即使项目只覆盖其中几天，时间轴也要铺满整个月——
 	 * 否则「筛选区间」和「看到的区间」对不上，恢复缩放也没有明确的落点。
@@ -171,7 +182,8 @@ export function buildGanttModel(
 			? applySectionSpecs(model.rows, options.sections, settings.mermaidSectionFallback)
 			: buildSections(model.rows, settings.mermaidSectionFallback);
 	model.showSectionHeaders =
-		model.sections.length > 1 || model.sections.some((section) => section.collapsed);
+		options.showSectionHeaders ??
+		(model.sections.length > 1 || model.sections.some((section) => section.collapsed));
 
 	let rangeStart: string | null = null;
 	let rangeEnd: string | null = null;

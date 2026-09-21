@@ -3,6 +3,7 @@ import {
 	normalizeBoolean,
 	normalizeDate,
 	normalizeProgress,
+	normalizeSingleValue,
 	normalizeStatus,
 	normalizeStringArray,
 } from "./normalize";
@@ -96,9 +97,11 @@ export function buildProjectItem(
 		completionDate,
 		progress: normalizeProgress(fm[mapping.progress]),
 		priority: normalizeOptionalString(fm[mapping.priority]),
-		area: normalizeStringArray(fm[mapping.area]),
+		// 领域是单值（分组维度，多值会让分组失效）；老笔记写成数组时取第一个
+		area: normalizeSingleValue(fm[mapping.area]),
 		objective: normalizeOptionalString(fm[mapping.objective]),
 		context: normalizeOptionalString(fm[mapping.context]),
+		remark: normalizeOptionalString(fm[mapping.remark]),
 		longTerm: normalizeBoolean(fm[mapping.longTerm]),
 		mainProject: normalizeBoolean(fm[mapping.mainProject]),
 		projectId: normalizeOptionalString(fm[mapping.projectId]),

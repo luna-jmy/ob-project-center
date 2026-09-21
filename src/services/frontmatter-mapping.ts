@@ -21,14 +21,31 @@ export interface EditorValues {
 	dueDate: string | null;
 	completionDate: string | null;
 	progress: number | null;
-	area: string[];
+	/** 领域：单值（分组维度，多值会让分组失效，用户口径 2026-09-21） */
+	area: string | null;
 	objective: string | null;
 	projectLeader: string | null;
 	projectMembers: string[];
+	/** 多行备注（用户口径 2026-09-21） */
+	remark: string | null;
 	longTerm: boolean;
 	mainProject: boolean;
 	/** 甘特条自定义颜色（CSS 颜色值） */
 	color: string | null;
+}
+
+/**
+ * 编辑弹窗里"已有值"候选（用户口径 2026-09-21）。
+ *
+ * 目的不是加个下拉好看，而是**字段内容一致性**：领域、目标、负责人这些字段一旦同时
+ * 出现「市场」和「市场部」，分组与筛选就悄悄裂成两拨，而且从界面上看不出为什么。
+ * 候选值只来自**库里已经写过的值**，让人尽量选、少手打。
+ */
+export interface FieldSuggestions {
+	area: string[];
+	objective: string[];
+	projectLeader: string[];
+	projectMembers: string[];
 }
 
 export function emptyEditorValues(): EditorValues {
@@ -39,10 +56,11 @@ export function emptyEditorValues(): EditorValues {
 		dueDate: null,
 		completionDate: null,
 		progress: null,
-		area: [],
+		area: null,
 		objective: null,
 		projectLeader: null,
 		projectMembers: [],
+		remark: null,
 		longTerm: false,
 		mainProject: false,
 		color: null,
@@ -58,10 +76,11 @@ export function editorValuesFromItem(item: ProjectItem): EditorValues {
 		dueDate: item.dueDate,
 		completionDate: item.completionDate,
 		progress: item.progress,
-		area: [...item.area],
+		area: item.area,
 		objective: item.objective,
 		projectLeader: item.projectLeader,
 		projectMembers: [...item.projectMembers],
+		remark: item.remark,
 		longTerm: item.longTerm,
 		mainProject: item.mainProject,
 		color: item.color,
@@ -72,8 +91,9 @@ export function editorValuesFromItem(item: ProjectItem): EditorValues {
  * 表单 → frontmatter patch。
  *
  * 三类字段的写入语义各不相同，这是刻意的：
- * - 标量（status/priority/日期/进度/文本）：空 → null（删除字段，保持 frontmatter 干净）；
- * - 列表（area/project-members）：空列表 → null（删除），非空 → 数组；
+ * - 标量（status/priority/日期/进度/文本/领域）：空 → null（删除字段，保持 frontmatter 干净）；
+ * - 列表（project-members）：空列表 → null（删除），非空 → 数组；
+ *   （领域原先是列表，2026-09-21 改成标量：它是分组维度，多值会让分组失效。）
  * - 布尔（long-term / main-project）：**总是**写 true/false。
  *   它们在模板里是常驻字段，「关掉开关」应当写 false 而不是删字段——
  *   删了以后重新套模板又是 true，用户会觉得开关没生效。
@@ -89,11 +109,12 @@ export function buildProjectPatch(
 		[mapping.dueDate]: values.dueDate,
 		[mapping.completionDate]: values.completionDate,
 		[mapping.progress]: values.progress,
-		[mapping.area]: values.area.length > 0 ? values.area : null,
+		[mapping.area]: values.area,
 		[mapping.objective]: values.objective,
 		[mapping.projectLeader]: values.projectLeader,
 		[mapping.projectMembers]:
 			values.projectMembers.length > 0 ? values.projectMembers : null,
+		[mapping.remark]: values.remark,
 		[mapping.longTerm]: values.longTerm,
 		[mapping.mainProject]: values.mainProject,
 		[mapping.color]: values.color,
@@ -113,6 +134,40 @@ export function buildNewProjectPatch(
 		[mapping.type]: "project",
 		tags: [mapping.identifyTag],
 	};
+}
+
+/**
+ * 已有值候选：从全部项目里收集（去空白、去重、按码点排序）。
+ *
+ * 排序用码点而不是 localeCompare("zh")：与仓库其它排序一致，跨环境结果确定。
+ * 顺序稳定这件事对下拉/标签有实际意义——同一个 vault 每次打开看到的顺序应当一样。
+ */
+export function collectSuggestions(items: readonly ProjectItem[]): FieldSuggestions {
+	const area = new Set<string>();
+	const objective = new Set<string>();
+	const projectLeader = new Set<string>();
+	const projectMembers = new Set<string>();
+	for (const item of items) {
+		addValue(area, item.area);
+		addValue(objective, item.objective);
+		addValue(projectLeader, item.projectLeader);
+		for (const value of item.projectMembers) addValue(projectMembers, value);
+	}
+	return {
+		area: sortedValues(area),
+		objective: sortedValues(objective),
+		projectLeader: sortedValues(projectLeader),
+		projectMembers: sortedValues(projectMembers),
+	};
+}
+
+function addValue(target: Set<string>, value: string | null): void {
+	const trimmed = (value ?? "").trim();
+	if (trimmed.length > 0) target.add(trimmed);
+}
+
+function sortedValues(values: Set<string>): string[] {
+	return [...values].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
 /** 逗号（中英文）或换行分隔的输入 → 字符串数组（去空白、去重、保序） */

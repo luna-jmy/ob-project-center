@@ -4,8 +4,8 @@ import {
 	EditorValues,
 	buildNewProjectPatch,
 	emptyEditorValues,
+	FieldSuggestions,
 	parseDateInput,
-	parseListInput,
 } from "../services/frontmatter-mapping";
 import {
 	quickProjectFolder,
@@ -18,6 +18,8 @@ import {
 	ProjectStatus,
 	statusLabel,
 } from "../types";
+// 目标 / 领域的输入方式与编辑弹窗共用（可输入的下拉：能选已有的，也能直接打新的）
+import { addTextFieldSetting } from "./suggestion-fields";
 
 /**
  * 新建项目 Modal（SPEC §4 F4.1 + 用户口径 2026-09-18 / 2026-09-20）。
@@ -44,6 +46,11 @@ export type NewProjectShape = "folder" | "quick";
 
 export interface NewProjectModalDeps {
 	getSettings(): ProjectMasterSettings;
+	/**
+	 * 已有值候选（领域 / 目标）：与编辑弹窗同一套，由调用方从全部项目现算。
+	 * 弹窗自己不该去翻索引（同 EditorModalDeps 的口径）。
+	 */
+	getSuggestions(): FieldSuggestions;
 	/** 创建笔记并写回字段，返回新笔记路径 */
 	createProject(input: {
 		folderPath: string;
@@ -85,6 +92,8 @@ export class NewProjectModal extends Modal {
 		this.titleEl.setText(t("新建项目"));
 
 		const settings = this.deps.getSettings();
+		// 已有值候选现算（每次打开弹窗一次）：索引一变，候选项就是最新的
+		const suggestions = this.deps.getSuggestions();
 
 		new Setting(contentEl)
 			.setName(t("项目名称"))
@@ -221,24 +230,34 @@ export class NewProjectModal extends Modal {
 			});
 		});
 
-		new Setting(contentEl)
-			.setName(t("目标（objective）"))
-			.setDesc(t("甘特图按它分节"))
-			.addText((text) => {
-				text.onChange((value) => {
-					const trimmed = value.trim();
-					this.values.objective = trimmed.length === 0 ? null : trimmed;
-				});
-			});
+		/*
+		 * 目标 / 领域与编辑弹窗共用同一套字段（用户口径 2026-09-21）：单值走可输入的
+		 * 下拉（datalist）、多值走点选标签，候选值都来自库里已经写过的值。
+		 *
+		 * 放在新建这一步才有意义：这恰恰是最容易手打出「市场部」这种变体的时刻，
+		 * 而脏值一旦写进去，分组与筛选就已经裂成两拨了——等保存完再回编辑界面去选，
+		 * 等于事后补救。
+		 */
+		addTextFieldSetting(
+			contentEl,
+			t("目标（objective）"),
+			this.values.objective,
+			(v) => {
+				this.values.objective = v;
+			},
+			{ desc: t("甘特图按它分节"), suggestions: suggestions.objective },
+		);
 
-		new Setting(contentEl)
-			.setName(t("领域"))
-			.setDesc(t("多个值用逗号分隔"))
-			.addText((text) => {
-				text.onChange((value) => {
-					this.values.area = parseListInput(value);
-				});
-			});
+		// 领域是单值（它是分组维度，多值会让分组失效），与「目标」同一套输入
+		addTextFieldSetting(
+			contentEl,
+			t("领域"),
+			this.values.area,
+			(v) => {
+				this.values.area = v;
+			},
+			{ desc: t("单个值；按领域分组与筛选都看这一个"), suggestions: suggestions.area },
+		);
 
 		this.errorEl = contentEl.createDiv({ cls: "pm-modal__error" });
 

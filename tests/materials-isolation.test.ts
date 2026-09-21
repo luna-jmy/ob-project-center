@@ -31,7 +31,7 @@ const VAULT: VaultLayout = [
 			start_date: "2026-01-01",
 			due_date: "2026-03-01",
 			"main-project": true,
-			area: ["市场"],
+			area: "市场",
 		},
 	},
 	{ path: "100 Projects/官网改版/资料/需求梳理.md", frontmatter: { tags: ["note"] } },

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	buildNewProjectPatch,
 	buildProjectPatch,
+	collectSuggestions,
 	editorValuesFromItem,
 	emptyEditorValues,
 	formatListInput,
@@ -19,6 +20,7 @@ const RENAMED: FieldMappingConfig = {
 	startDate: "开始",
 	dueDate: "截止",
 	area: "领域",
+	remark: "备注",
 	longTerm: "长期",
 	mainProject: "主项目",
 	identifyTag: "proj",
@@ -42,16 +44,17 @@ describe("编辑表单 → frontmatter patch（SPEC §5.2 单一映射层）", (
 		expect(patch["objective"]).toBeNull();
 	});
 
-	it("deletes list fields when empty but writes the array when populated", () => {
+	it("deletes fields when empty and writes them when populated", () => {
 		const cleared = buildProjectPatch(emptyEditorValues(), DEFAULT_FIELD_MAPPING);
 		expect(cleared["area"]).toBeNull();
 		expect(cleared["project-members"]).toBeNull();
 
 		const filled = buildProjectPatch(
-			{ ...emptyEditorValues(), area: ["A", "B"], projectMembers: ["Luna"] },
+			{ ...emptyEditorValues(), area: "A", projectMembers: ["Luna"] },
 			DEFAULT_FIELD_MAPPING,
 		);
-		expect(filled["area"]).toEqual(["A", "B"]);
+		// 领域是标量（分组维度，多值会让分组失效），成员仍是数组
+		expect(filled["area"]).toBe("A");
 		expect(filled["project-members"]).toEqual(["Luna"]);
 	});
 
@@ -68,6 +71,59 @@ describe("编辑表单 → frontmatter patch（SPEC §5.2 单一映射层）", (
 			DEFAULT_FIELD_MAPPING,
 		);
 		expect(patch["progress"]).toBe(0);
+	});
+
+	it("writes the remark through the mapping, and removes it when cleared", () => {
+		// 备注走普通标量语义：有值写值、清空则删字段（用户口径 2026-09-21）
+		expect(buildProjectPatch(emptyEditorValues(), DEFAULT_FIELD_MAPPING)["remark"]).toBeNull();
+		const filled = buildProjectPatch(
+			{ ...emptyEditorValues(), remark: "改状态：等设计出图" },
+			RENAMED,
+		);
+		expect(filled["备注"]).toBe("改状态：等设计出图");
+		expect(filled["remark"]).toBeUndefined();
+	});
+});
+
+/*
+ * 已有值候选（用户口径 2026-09-21）：领域 / 目标 / 负责人 / 成员。
+ *
+ * 目的不是下拉好看，而是让同一批项目尽量用**同一套写法**——「市场」与「市场部」
+ * 混着写，分组和筛选会悄悄裂成两拨，界面上还看不出为什么。
+ */
+describe("已有值候选（编辑弹窗的下拉与点选标签）", () => {
+	it("collects、trims、deduplicates and sorts values from every project", () => {
+		const items = [
+			projectItem({
+				name: "a",
+				area: "市场",
+				objective: "增长",
+				projectLeader: "Luna",
+				projectMembers: ["A", "B"],
+			}),
+			projectItem({
+				name: "b",
+				area: " 运营 ",
+				objective: "增长",
+				projectLeader: "  Kite ",
+				projectMembers: ["B", ""],
+			}),
+		];
+		const suggestions = collectSuggestions(items);
+		// 码点序：Luna(L) < Kite(K)? —— 大写字母里 K < L，所以 Kite 在前
+		expect(suggestions.area).toEqual(["市场", "运营"]);
+		expect(suggestions.objective).toEqual(["增长"]);
+		expect(suggestions.projectLeader).toEqual(["Kite", "Luna"]);
+		expect(suggestions.projectMembers).toEqual(["A", "B"]);
+	});
+
+	it("returns empty lists when nothing is filled in yet", () => {
+		expect(collectSuggestions([projectItem({ name: "empty" })])).toEqual({
+			area: [],
+			objective: [],
+			projectLeader: [],
+			projectMembers: [],
+		});
 	});
 });
 
@@ -103,10 +159,11 @@ describe("索引条目 → 表单初值", () => {
 			startDate: "2026-01-01",
 			dueDate: "2026-02-01",
 			progress: 40,
-			area: ["市场"],
+			area: "市场",
 			objective: "增长",
 			projectLeader: "Luna",
 			projectMembers: ["A", "B"],
+			remark: "停一周等排期",
 			longTerm: true,
 			mainProject: true,
 		});
@@ -118,10 +175,11 @@ describe("索引条目 → 表单初值", () => {
 			dueDate: "2026-02-01",
 			completionDate: null,
 			progress: 40,
-			area: ["市场"],
+			area: "市场",
 			objective: "增长",
 			projectLeader: "Luna",
 			projectMembers: ["A", "B"],
+			remark: "停一周等排期",
 			longTerm: true,
 			mainProject: true,
 			color: null,
@@ -129,10 +187,10 @@ describe("索引条目 → 表单初值", () => {
 	});
 
 	it("copies arrays instead of aliasing the indexed item", () => {
-		const item = projectItem({ name: "p", area: ["市场"] });
+		const item = projectItem({ name: "p", projectMembers: ["Luna"] });
 		const values = editorValuesFromItem(item);
-		values.area.push("家庭");
-		expect(item.area).toEqual(["市场"]);
+		values.projectMembers.push("Kite");
+		expect(item.projectMembers).toEqual(["Luna"]);
 	});
 
 	it("keeps an unparseable status as null so the dropdown can show「未设置」", () => {

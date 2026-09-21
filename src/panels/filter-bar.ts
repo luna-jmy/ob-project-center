@@ -258,14 +258,14 @@ export class FilterBar {
 		const select = group.createEl("select", { cls: "dropdown pm-filter-select" });
 		this.sortSelect = select;
 		for (const [value, label] of [
-			["due-asc", "截止日 ↑"],
-			["due-desc", "截止日 ↓"],
-			["start-asc", "开始日 ↑"],
-			["start-desc", "开始日 ↓"],
-			["name", "项目名"],
-			["priority", "优先级"],
+			["due-asc", t("截止日 ↑")],
+			["due-desc", t("截止日 ↓")],
+			["start-asc", t("开始日 ↑")],
+			["start-desc", t("开始日 ↓")],
+			["name", t("项目名")],
+			["priority", t("优先级")],
 			// 拖过分组/项目后会自动切到这一档；想回到自动排序就从这里选别的
-			["manual", "手动排序"],
+			["manual", t("手动排序")],
 		] as [SortMode, string][]) {
 			select.createEl("option", { value, text: label });
 		}

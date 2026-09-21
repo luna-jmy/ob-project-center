@@ -111,6 +111,29 @@ export function normalizeStringArray(raw: unknown): string[] {
 		.filter((entry) => entry.length > 0);
 }
 
+/**
+ * 单值字符串规范化（领域）：**允许写的是数组**，取第一个有效值。
+ *
+ * 历史笔记里有 `area: [市场, 运营]` 这种写法（当年按「可以写多个值」的口径建的）。
+ * 领域是**分组维度**，多值会让分组失效——分组只认一个值，其余值在分组里看不见，
+ * 而筛选却按任意值匹配，于是同一个项目「筛选能筛到、分组里找不到」（用户口径 2026-09-21）。
+ *
+ * 取第一个而不是丢弃：与分组一直以来的行为（按 `area[0]` 分）完全一致，
+ * 所以老笔记改完之后**在界面上看不出变化**，不会突然从某个分组掉进「未设置」。
+ *
+ * 数字也收：YAML 里 `area: 2026` 不引号就是数字（同 normalizeOptionalString 的口径）。
+ */
+export function normalizeSingleValue(raw: unknown): string | null {
+	const entries = Array.isArray(raw) ? raw : [raw];
+	for (const entry of entries) {
+		if (typeof entry === "number" && Number.isFinite(entry)) return String(entry);
+		if (typeof entry !== "string") continue;
+		const value = entry.trim();
+		if (value.length > 0) return value;
+	}
+	return null;
+}
+
 /** progress 规范化：数字/数字串（含 % 后缀）→ clamp 0..100；非数值 null。 */
 export function normalizeProgress(raw: unknown): number | null {
 	if (typeof raw === "number" && Number.isFinite(raw)) {
