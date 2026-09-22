@@ -1,5 +1,9 @@
-# Build output
-main.js
+# 构建产物
+#
+# `main.js` 是**提交进仓库**的（用户口径 2026-09-22）：本仓库没有 CI 打包流程，
+# 而 Obsidian 只认仓库根目录的 main.js —— 忽略它，别人 clone / 同步下来的就是一个
+# 装不上的插件。它由 `npm run build` 生成，改完源码记得重新构建并提交。
+# 只有 sourcemap 与打包用的 zip 不进版本库。
 *.map
 
 # Dependencies
