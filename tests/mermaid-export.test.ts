@@ -264,6 +264,19 @@ describe("Mermaid 导出 — 选项指令（用户要求 2026-09-20）", () => {
 		);
 	});
 
+	it("joins weekends and dates into one excludes line", () => {
+		/*
+		 * mermaid 的 excludes 是「后一条覆盖前一条」：分两行写时前一行会失效。
+		 * 这条锁住「周末开关与节假日排期同时打开」这个最常用的组合。
+		 */
+		const output = exportOf([item], {
+			mermaidExcludeWeekends: true,
+			mermaidExcludeDates: "2026-10-01, 2026-10-02",
+		});
+		expect(output).toContain("    excludes weekends,2026-10-01,2026-10-02\n");
+		expect(output.match(/\n {4}excludes /g)).toHaveLength(1);
+	});
+
 	it("emits an excludes list for extra dates", () => {
 		const output = exportOf([item], {
 			mermaidExcludeDates: "2026-10-01, 2026-10-02\n2026-10-03",
@@ -279,8 +292,8 @@ describe("Mermaid 导出 — 选项指令（用户要求 2026-09-20）", () => {
 			mermaidIncludeDates: "2026-10-10",
 		});
 		expect(output).toContain(
-			"    axisFormat %y-%m\n    todayMarker off\n    excludes weekends\n"
-				+ "    excludes 2026-10-01\n    includes 2026-10-10\n\n",
+			"    axisFormat %y-%m\n    todayMarker off\n    excludes weekends,2026-10-01\n"
+				+ "    includes 2026-10-10\n\n",
 		);
 	});
 
@@ -392,16 +405,17 @@ describe("Mermaid 导出 — 法定节假日与调休补班", () => {
 
 	it("emits the holidays as excludes and the make-up workdays as includes", () => {
 		const output = nationalDay();
-		expect(output).toContain("    excludes weekends\n");
+		// 周末与假日并成一条：mermaid 的 excludes 后一条覆盖前一条，分两行会丢掉前一行
 		expect(output).toContain(
-			"    excludes 2026-10-01,2026-10-02,2026-10-03,2026-10-04,2026-10-05,2026-10-06,2026-10-07\n",
+			"    excludes weekends,2026-10-01,2026-10-02,2026-10-03,2026-10-04,2026-10-05,2026-10-06,2026-10-07\n",
 		);
 		expect(output).toContain("    includes 2026-09-27,2026-10-10\n");
+		expect(output.match(/\n {4}excludes /g)).toHaveLength(1);
 	});
 
 	it("puts includes after excludes (order is what makes the override readable)", () => {
 		const output = nationalDay();
-		const excludesAt = output.indexOf("    excludes 2026-10-01");
+		const excludesAt = output.indexOf("    excludes weekends,2026-10-01");
 		const includesAt = output.indexOf("    includes 2026-09-27");
 		expect(excludesAt).toBeGreaterThan(-1);
 		expect(includesAt).toBeGreaterThan(excludesAt);

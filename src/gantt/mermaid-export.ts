@@ -113,13 +113,18 @@ export function exportableRows(model: GanttModel | null): GanttRow[] {
  * 导出选项 → mermaid 指令行（用户要求 2026-09-20）。
  * 顺序固定，保证同样的选项产出同样的文本（可被测试逐字比对）。
  *
+ * ── 为什么周末与假日必须在**同一条** excludes 里（用户口径 2026-09-22）──
+ * mermaid 对 `excludes` 是「后一条覆盖前一条」：`excludes weekends` 与
+ * `excludes 2026-10-01` 分成两行时，前一行会被丢掉 —— 表现就是「排除周末开关
+ * 看着写了、图上却没灰」。两个来源因此必须并进同一份清单：
+ *     excludes weekends,2026-10-01,2026-10-02
+ *
  * `excludes` 与 `includes` 的配合（法定节假日 + 调休）：
  * mermaid 的 `includes` 是**优先级最高**的工作日白名单——`isInvalidDate()` 里第一条就是
- * 「命中 includes → 立刻判定为有效日」，所以它能盖过 `excludes weekends` 与具体日期排除。
+ * 「命中 includes → 立刻判定为有效日」，所以它能盖过同一行里的 weekends 与具体日期排除。
  * 于是国内日历可以这样表达：
- *     excludes weekends
- *     excludes 2026-10-01,2026-10-02   ← 法定假日
- *     includes 2026-10-10              ← 调休补班（那天是周六，但要上班）
+ *     excludes weekends,2026-10-01,2026-10-02   ← 周末 + 法定假日
+ *     includes 2026-10-10                        ← 调休补班（那天是周六，但要上班）
  * 被 includes 捞回来的日子不会进图上那条灰色「非工作日」色带。
  * （依据 mermaid 的 gantt.jison 与 ganttRenderer.drawExcludeDays，2026-09-20 核实；
  *   官方文档只写了 excludes，没写 includes。）
@@ -136,13 +141,11 @@ function buildDirectives(model: GanttModel, settings: ProjectMasterSettings): st
 		// mermaid 默认就画 today 竖线，所以要「关掉」才输出指令
 		lines.push("    todayMarker off");
 	}
-	if (settings.mermaidExcludeWeekends) {
-		lines.push("    excludes weekends");
-	}
 
 	const { exclude, include } = resolveHolidayDates(model.rangeStart, model.rangeEnd, settings);
-	if (exclude.length > 0) {
-		lines.push(`    excludes ${exclude.join(",")}`);
+	const excludes = [...(settings.mermaidExcludeWeekends ? ["weekends"] : []), ...exclude];
+	if (excludes.length > 0) {
+		lines.push(`    excludes ${excludes.join(",")}`);
 	}
 	if (include.length > 0) {
 		lines.push(`    includes ${include.join(",")}`);
