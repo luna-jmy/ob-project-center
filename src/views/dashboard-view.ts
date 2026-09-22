@@ -169,6 +169,9 @@ export class DashboardView extends ItemView {
 	private pendingAnchor: ZoomAnchor | null = null;
 
 	private filterBar: FilterBar | null = null;
+	/** 筛选区宿主：收放只切它的 is-hidden（与侧栏显隐同口径的会话内状态） */
+	private filterHostEl: HTMLElement | null = null;
+	private filterCollapsed = false;
 	private groupPanel: GroupPanel | null = null;
 	private gantt: GanttView | null = null;
 	private mermaidPanel: MermaidPanel | null = null;
@@ -238,6 +241,7 @@ export class DashboardView extends ItemView {
 		this.gantt = null;
 		this.mermaidPanel = null;
 		this.filterBar = null;
+		this.filterHostEl = null;
 		this.groupPanel = null;
 		this.contentEl.empty();
 	}
@@ -310,6 +314,24 @@ export class DashboardView extends ItemView {
 			},
 			GANTT_ONLY_CLASS,
 		);
+		/*
+		 * 筛选区收放（用户要求 2026-09-22）。
+		 *
+		 * 默认展开，点了才收；只切类名与按钮文字，**不刷新、不重扫** ——
+		 * 筛选状态一个字都不动，收起来只是把这块地方让出来。
+		 * 与「侧栏显隐」同口径：会话内状态，不写设置（下次打开仍是展开）。
+		 */
+		this.addButton(
+			actions,
+			this.filterCollapsed ? t("展开筛选") : t("收起筛选"),
+			(button) => {
+				this.filterCollapsed = !this.filterCollapsed;
+				this.filterHostEl?.toggleClass("is-hidden", this.filterCollapsed);
+				button.setText(this.filterCollapsed ? t("展开筛选") : t("收起筛选"));
+				button.setAttribute("aria-expanded", String(!this.filterCollapsed));
+			},
+		);
+
 		// 「面板模式」是工具栏里最关键的视图切换：独立样式 + 激活态，与普通按钮区分开
 		this.addButton(
 			actions,
@@ -370,6 +392,7 @@ export class DashboardView extends ItemView {
 
 	private buildFilterBar(root: HTMLElement): void {
 		const hostEl = root.createDiv({ cls: "pm-filter-host" });
+		this.filterHostEl = hostEl;
 		this.filterBar = new FilterBar(this, hostEl, {
 			getState: () => this.filterState,
 			getSortMode: () => this.sortMode,

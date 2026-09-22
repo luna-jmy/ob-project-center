@@ -361,6 +361,8 @@ export const EN: Record<string, string> = {
 	全部收起: "Collapse all",
 	展开侧栏: "Show sidebar",
 	收起侧栏: "Hide sidebar",
+	展开筛选: "Show filters",
+	收起筛选: "Hide filters",
 	面板模式: "Panel mode",
 	退出面板模式: "Exit panel mode",
 	甘特图: "Gantt",
