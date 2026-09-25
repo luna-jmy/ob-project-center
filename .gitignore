@@ -22,6 +22,7 @@ Thumbs.db
 .workbuddy/
 SPEC.md
 agent.md
+AGENTS.md
 
 # 发布产物：dist/ 放打包好的 zip（npm run package），只作 Release 附件，不进版本库
 dist/
