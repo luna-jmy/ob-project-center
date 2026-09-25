@@ -1,0 +1,62 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # 标签与 manifest 版本不一致直接失败，不浪费后面的安装与测试
+      - name: Verify tag and manifest version
+        run: test "${GITHUB_REF_NAME}" = "$(node -p "require('./manifest.json').version")"
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run test
+      - run: npm run build
+      # 产出 dist/<id>-<版本>.zip（版本号读 manifest，与标签一致已在上一步核对）
+      - run: npm run package
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+
+      # 本仓 CHANGELOG 标题格式是 `## [x.y.z] - YYYY-MM-DD`（带方括号与日期），
+      # 与 ob-workspace 的 `## x.y.z` 不同——正则按本仓格式匹配
+      - name: Extract changelog for this version
+        id: changelog
+        run: |
+          delimiter="$(openssl rand -hex 8)"
+          {
+            echo "BODY<<${delimiter}"
+            awk "/^## \[${GITHUB_REF_NAME}\]/{found=1; next} /^## /{found=0} found{print}" CHANGELOG.md
+            echo "${delimiter}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.VERSION }}
+          name: Project Master ${{ steps.version.outputs.VERSION }}
+          body: ${{ steps.changelog.outputs.BODY }}
+          files: |
+            main.js
+            manifest.json
+            styles.css
+            dist/*.zip
