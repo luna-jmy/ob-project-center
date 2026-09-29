@@ -287,15 +287,7 @@ export class FilterBar {
 		});
 
 		this.syncChips(this.areaChipsEl, buildAreaChips(state, this.deps), (value) => {
-			if (value === "__include_current__") {
-				this.deps.setAreaMode("include-current");
-				return;
-			}
-			if (value === "__exclude_current__") {
-				this.deps.setAreaMode("exclude-current");
-				return;
-			}
-			// 点具体领域 = 回到「选定领域」模式并切换该候选
+			// 纯标签点选（用户口径 2026-09-29）：仅当前/排除当前两个旧脚本快捷档已移除
 			if (state.areaMode !== "selected") this.deps.setAreaMode("selected");
 			this.deps.setAreas(toggle(state.areas, value));
 		});
@@ -430,20 +422,9 @@ function buildStatusChips(state: FilterState, settings: ProjectMasterSettings): 
 }
 
 function buildAreaChips(state: FilterState, deps: FilterBarHost): ChipSpec[] {
-	const chips: ChipSpec[] = [
-		{
-			value: "__include_current__",
-			label: "仅当前领域",
-			active: state.areaMode === "include-current",
-		},
-		{
-			value: "__exclude_current__",
-			label: "排除当前领域",
-			active: state.areaMode === "exclude-current",
-		},
-	];
-	for (const area of deps.getAvailableAreas()) {
-		chips.push({ value: area, label: area, active: state.areaMode === "selected" && state.areas.includes(area) });
-	}
-	return chips;
+	return deps.getAvailableAreas().map((area) => ({
+		value: area,
+		label: area,
+		active: state.areaMode === "selected" && state.areas.includes(area),
+	}));
 }
