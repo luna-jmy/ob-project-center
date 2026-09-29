@@ -128,22 +128,10 @@ export class FilterBar {
 	}
 
 	private buildAreaGroup(): void {
+		// 领域筛选纯点选（用户口径 2026-09-29）：去掉模式下拉，
+		// 「仅当前 / 排除当前」作为两枚模式标签放在候选最前面
 		const group = this.host.createDiv({ cls: "pm-filter-group pm-filter-group--area" });
 		group.createEl("label", { cls: "pm-filter-label", text: t("领域") });
-
-		const modeSelect = group.createEl("select", { cls: "dropdown pm-filter-select" });
-		this.areaModeSelect = modeSelect;
-		for (const [value, label] of [
-			["selected", "选定领域"],
-			["include-current", "仅当前领域"],
-			["exclude-current", "排除当前领域"],
-		] as [AreaMode, string][]) {
-			modeSelect.createEl("option", { value, text: label });
-		}
-		this.component.registerDomEvent(modeSelect, "change", () => {
-			this.deps.setAreaMode(modeSelect.value as AreaMode);
-		});
-
 		this.areaChipsEl = group.createDiv({ cls: "pm-chips pm-chips--area" });
 	}
 
@@ -299,14 +287,21 @@ export class FilterBar {
 		});
 
 		this.syncChips(this.areaChipsEl, buildAreaChips(state, this.deps), (value) => {
+			if (value === "__include_current__") {
+				this.deps.setAreaMode("include-current");
+				return;
+			}
+			if (value === "__exclude_current__") {
+				this.deps.setAreaMode("exclude-current");
+				return;
+			}
+			// 点具体领域 = 回到「选定领域」模式并切换该候选
+			if (state.areaMode !== "selected") this.deps.setAreaMode("selected");
 			this.deps.setAreas(toggle(state.areas, value));
 		});
 
 		if (this.presetSelect !== null) {
 			this.presetSelect.value = detectStatusPreset(state.statuses);
-		}
-		if (this.areaModeSelect !== null) {
-			this.areaModeSelect.value = state.areaMode;
 		}
 		if (this.dateSelect !== null) {
 			this.dateSelect.value = state.dateRange.preset;
@@ -435,11 +430,20 @@ function buildStatusChips(state: FilterState, settings: ProjectMasterSettings): 
 }
 
 function buildAreaChips(state: FilterState, deps: FilterBarHost): ChipSpec[] {
-	// include/exclude 模式不看具体候选，就没必要铺一排 chips
-	if (state.areaMode !== "selected") return [];
-	return deps.getAvailableAreas().map((area) => ({
-		value: area,
-		label: area,
-		active: state.areas.includes(area),
-	}));
+	const chips: ChipSpec[] = [
+		{
+			value: "__include_current__",
+			label: "仅当前领域",
+			active: state.areaMode === "include-current",
+		},
+		{
+			value: "__exclude_current__",
+			label: "排除当前领域",
+			active: state.areaMode === "exclude-current",
+		},
+	];
+	for (const area of deps.getAvailableAreas()) {
+		chips.push({ value: area, label: area, active: state.areaMode === "selected" && state.areas.includes(area) });
+	}
+	return chips;
 }

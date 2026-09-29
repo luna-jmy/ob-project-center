@@ -257,6 +257,12 @@ export class DashboardView extends ItemView {
 		this.addButton(actions, t("新建项目"), () => this.openNewProjectModal());
 		this.addButton(actions, t("刷新"), () => this.refresh());
 
+		// 回到今天（仅甘特模式可见；TM 同款交互）
+		const todayBtn = this.addButton(actions, t("回到今天"), () => {
+			if (this.gantt !== null) this.gantt.scrollToToday();
+		});
+		todayBtn.addClass(GANTT_ONLY_CLASS);
+
 		const grouping = actions.createEl("select", {
 			cls: "dropdown pm-toolbar__select",
 			attr: { "aria-label": t("分组依据") },
@@ -350,13 +356,14 @@ export class DashboardView extends ItemView {
 		label: string,
 		onClick: (button: HTMLButtonElement) => void,
 		cls = "",
-	): void {
+	): HTMLButtonElement {
 		const button = host.createEl("button", {
 			cls: cls.length > 0 ? `pm-btn ${cls}` : "pm-btn",
 			text: label,
 			attr: { type: "button" },
 		});
 		this.registerDomEvent(button, "click", () => onClick(button));
+		return button;
 	}
 
 	/**

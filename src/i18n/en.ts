@@ -350,6 +350,7 @@ export const EN: Record<string, string> = {
 	// ── 视图外壳：工具栏 / 统计 / Tab / 提示 ──
 	项目中心: "Project center",
 	刷新: "Refresh",
+	"回到今天": "Back to today",
 	分组依据: "Group by",
 	按文件夹分组: "By folder",
 	按目标分组: "By objective",

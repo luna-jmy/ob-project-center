@@ -78,6 +78,9 @@ export class ProjectEditorModal extends Modal {
 		contentEl.addClass("pm-modal");
 		this.titleEl.setText(`编辑项目 · ${this.displayName()}`);
 
+		// 操作区置顶（用户口径 2026-09-29）：保存键放底部总被忘掉
+		this.renderActions(contentEl);
+
 		const settings = this.deps.getSettings();
 		const mapping = settings.fieldMapping;
 		// 已有值候选：领域 / 目标 / 负责人 / 成员，来自库里已经写过的值
@@ -243,8 +246,6 @@ export class ProjectEditorModal extends Modal {
 					this.values.remark = trimmed.length === 0 ? null : trimmed;
 				});
 			});
-
-		this.renderActions(contentEl);
 	}
 
 	private renderActions(host: HTMLElement): void {

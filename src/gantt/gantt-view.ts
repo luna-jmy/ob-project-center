@@ -1089,6 +1089,15 @@ export class GanttView {
 		this.timelineEl.scrollLeft = 0;
 	}
 
+	/** 定位到今天线（工具栏「回到今天」；TM 同款交互）。 */
+	scrollToToday(): void {
+		const scale = this.scale;
+		const timeline = this.timelineEl;
+		if (scale === null || timeline === null || scale.todayX === null) return;
+		timeline.scrollLeft = Math.max(0, scale.todayX - timeline.clientWidth / 2);
+		this.syncScroll();
+	}
+
 	private highlight(path: string): void {
 		const bar = this.findBar(path);
 		const rowEl = this.sidebarBodyEl?.querySelector<HTMLElement>(
