@@ -3,6 +3,8 @@
 把项目笔记变成可交互的项目看板：甘特图、筛选、分组面板。
 数据全部来自笔记的 frontmatter——不引入数据库，也不改动你现有的项目笔记结构。
 
+**在线文档**：<https://luna-jmy.github.io/ob-plugin-docs/zh-cn/project-master/>
+
 ## 安装
 
 1. 到 [Releases](https://github.com/luna-jmy/ob-project-center/releases) 下载最新版本；
