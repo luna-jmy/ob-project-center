@@ -8,7 +8,7 @@ import {
 } from "../src/types";
 
 /**
- * Milestone 0 冒烟测试：设置骨架与 TPL-Project 模板现状一致（SPEC §5.2）。
+ * Milestone 0 冒烟测试：设置骨架与 TPL-Project 模板现状一致（AGENTS.md §5.2）。
  * 规范化层/筛选管道/分组逻辑的 TDD 用例随对应里程碑落地。
  */
 describe("default settings (milestone 0)", () => {

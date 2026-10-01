@@ -2,7 +2,7 @@ import { ProjectItem, ProjectMasterSettings } from "../types";
 import { buildProjectItem, DataIssue, ProjectFileInfo } from "./project-item";
 
 /**
- * 项目索引（SPEC §3.1）—— 依赖注入的纯数据管道，零 Obsidian 依赖。
+ * 项目索引（AGENTS.md §5.2）—— 依赖注入的纯数据管道，零 Obsidian 依赖。
  *
  * - Obsidian 侧由 main.ts 装配：files ← vault.getMarkdownFiles()，
  *   frontmatter ← metadataCache.getFileCache(file)?.frontmatter；
@@ -14,7 +14,7 @@ import { buildProjectItem, DataIssue, ProjectFileInfo } from "./project-item";
 export type FrontmatterReader = (path: string) => Record<string, unknown> | null;
 
 /**
- * 路径是否落在扫描范围内（SPEC §2.1/§5.1）—— 纯函数。
+ * 路径是否落在扫描范围内（AGENTS.md §5.2/§5.1）—— 纯函数。
  * 前缀匹配带 `/` 分隔符，避免「100 Projects2」被误判进「100 Projects」。
  * main.ts 做大 vault 分批预筛时复用同一份逻辑，避免两处范围判断漂移。
  */

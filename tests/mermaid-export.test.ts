@@ -13,7 +13,7 @@ function exportOf(
 	return exportMermaid(buildGanttModel(items, settings(overrides), TODAY), settings(overrides));
 }
 
-describe("Mermaid 导出 — 头部固定格式（SPEC F1.7，对齐 projectGantt.js）", () => {
+describe("Mermaid 导出 — 头部固定格式（AGENTS.md §5.2，对齐 projectGantt.js）", () => {
 	it("emits the exact fenced block header the existing script produces", () => {
 		const output = exportOf([
 			projectItem({
@@ -535,7 +535,7 @@ describe("Mermaid 导出 — 跟随视图折叠状态", () => {
 	});
 });
 
-describe("Mermaid 导出 — 写入笔记的落点标记（SPEC F1.7 增强项）", () => {
+describe("Mermaid 导出 — 写入笔记的落点标记（AGENTS.md §5.2 增强项）", () => {
 	it("wraps the block in the configurable gantt-builder markers", () => {
 		const wrapped = wrapInMarkers("```mermaid\ngantt\n```", settings());
 		expect(wrapped).toBe(

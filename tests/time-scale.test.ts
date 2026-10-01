@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { DAY_WIDTH, buildTimeScale } from "../src/gantt/time-scale";
 import { diffDaysIso } from "../src/utils/date";
 
-describe("时间轴刻度 — 范围与像素映射（SPEC F1.2）", () => {
+describe("时间轴刻度 — 范围与像素映射（AGENTS.md §5.2）", () => {
 	it("pads the range by one full unit on each side (month zoom)", () => {
 		const scale = buildTimeScale("2026-01-05", "2026-12-31", "month");
 		expect(scale.startIso).toBe("2025-12-01");

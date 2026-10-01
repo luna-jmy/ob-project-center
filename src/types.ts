@@ -1,5 +1,5 @@
 /**
- * Project Master — 类型与设置定义（SPEC.md §2/§5 的单一事实源）
+ * Project Master — 类型与设置定义（AGENTS.md §5.2 的单一事实源）
  *
  * 参数分离原则（agent.md §2.5）：
  * - 插件内部只使用逻辑字段名（FieldMappingConfig 的键）；
@@ -89,7 +89,7 @@ export function priorityLabel(value: string): string {
 	return source === undefined ? value : t(source);
 }
 
-/** status 中文别名 → 规范值（SPEC §2.3，仅在 chineseAliasCompat 开启时生效；可被设置覆盖） */
+/** status 中文别名 → 规范值（AGENTS.md §5.2，仅在 chineseAliasCompat 开启时生效；可被设置覆盖） */
 export const STATUS_CHINESE_ALIASES: Readonly<Record<string, ProjectStatus>> = {
 	"未开始/待启动": "inbox",
 	"起草/构思中": "draft",
@@ -102,7 +102,7 @@ export const STATUS_CHINESE_ALIASES: Readonly<Record<string, ProjectStatus>> = {
 
 /**
  * 字段映射：逻辑字段名 → 物理字段名。
- * 默认值 = TPL-Project.md 模板现状（SPEC §5.2）。
+ * 默认值 = TPL-Project.md 模板现状（AGENTS.md §5.2）。
  */
 export interface FieldMappingConfig {
 	type: string;
@@ -398,7 +398,7 @@ export const SIDEBAR_WIDTH_RANGE = { min: 240, max: 900 } as const;
 
 export interface ProjectMasterSettings {
 	version: number;
-	/** 项目扫描目录（多目录，SPEC §5.1） */
+	/** 项目扫描目录（多目录，AGENTS.md §5.2） */
 	scanFolders: string[];
 	/**
 	 * 路径含此标记的文件夹归入「快速项目」分区。
@@ -420,16 +420,16 @@ export interface ProjectMasterSettings {
 	chineseAliasCompat: boolean;
 	/** 缺失日期的兜底策略：±N 天 or 标记无效 */
 	dateFallback: DateFallbackStrategy;
-	/** 兜底天数（SPEC §2.3 的 ±7 天，参数化避免硬编码） */
+	/** 兜底天数（AGENTS.md §5.2 的 ±7 天，参数化避免硬编码） */
 	dateFallbackDays: number;
 	fieldMapping: FieldMappingConfig;
-	/** status 中文别名映射表（可编辑，SPEC §5.3） */
+	/** status 中文别名映射表（可编辑，AGENTS.md §5.2） */
 	statusAliases: Record<string, ProjectStatus>;
-	/** status 徽章 emoji（可编辑，SPEC §5.3） */
+	/** status 徽章 emoji（可编辑，AGENTS.md §5.2） */
 	statusEmoji: Record<string, string>;
-	/** status suggester 顺序（可编辑，SPEC §5.3） */
+	/** status suggester 顺序（可编辑，AGENTS.md §5.2） */
 	statusOrder: ProjectStatus[];
-	/** priority 徽章 emoji（可编辑，SPEC §5.3） */
+	/** priority 徽章 emoji（可编辑，AGENTS.md §5.2） */
 	priorityEmoji: Record<string, string>;
 	defaultGrouping: GroupingMode;
 	defaultSort: SortMode;
@@ -496,7 +496,7 @@ export interface ProjectMasterSettings {
 	manualGroupOrder: Record<string, string[]>;
 	/** 手动排序：分组内项目顺序（键 = `${分组模式}::${分组 key}`） */
 	manualProjectOrder: Record<string, string[]>;
-	/** Mermaid 导出标题（SPEC F1.7，对齐 projectGantt.js） */
+	/** Mermaid 导出标题（AGENTS.md §5.2，对齐 projectGantt.js） */
 	mermaidTitle: string;
 	/** Mermaid 导出：是否显示「今天」的竖线（关掉时输出 todayMarker off） */
 	mermaidTodayMarker: boolean;
@@ -521,7 +521,7 @@ export interface ProjectMasterSettings {
 	holidaySchedules: HolidayScheduleMap;
 	/** 无 objective 项目的 Mermaid 分节名（对齐 projectGantt.js「默认项目」） */
 	mermaidSectionFallback: string;
-	/** 「导出到笔记」的落点标记（复用 gantt-builder 占位块，SPEC F1.7） */
+	/** 「导出到笔记」的落点标记（复用 gantt-builder 占位块，AGENTS.md §5.2） */
 	mermaidMarkerStart: string;
 	mermaidMarkerEnd: string;
 }

@@ -12,7 +12,7 @@ import {
 import { GroupingMode, PRIORITY_EMOJI, ProjectItem, STATUS_EMOJI, ProjectStatus } from "../types";
 
 /**
- * 分组面板（SPEC §4 F3 + 用户口径 2026-09-18 / 2026-09-20）—— 规则全部来自
+ * 分组面板（AGENTS.md §5.2 F3 + 用户口径 2026-09-18 / 2026-09-20）—— 规则全部来自
  * grouping-service，这里只画与转发交互。
  *
  * ── 定位：**只读的旁证面板**（用户口径 2026-09-20，2026-09-21 修订）──────────────

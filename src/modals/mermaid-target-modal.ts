@@ -2,7 +2,7 @@ import { App, FuzzySuggestModal, TFile } from "obsidian";
 import { t } from "../i18n";
 
 /**
- * 「导出到笔记」的目标选择（SPEC F1.7 增强项）。
+ * 「导出到笔记」的目标选择（AGENTS.md §5.2 增强项）。
  *
  * 用官方 `FuzzySuggestModal` 而不是自组列表：键盘导航、输入法、模糊匹配都由宿主保证，
  * 也就自动满足技能对中文 IME 与可访问性的要求。

@@ -23,7 +23,7 @@ import {
 import { todayIso } from "../utils/date";
 
 /**
- * 筛选栏（SPEC §4 F2）—— 视图内 UI，不再依赖 dashboard 笔记 frontmatter 传参。
+ * 筛选栏（AGENTS.md §5.2 F2）—— 视图内 UI，不再依赖 dashboard 笔记 frontmatter 传参。
  *
  * 与现有 dashboard 的差别（这是插件的立身之本之一）：
  * - status 从「三档互斥下拉」升级为「7 状态多选 chips + 三档快捷预设」；
@@ -63,7 +63,7 @@ export interface FilterBarHost {
 	clearFilters(): void;
 }
 
-/** 搜索防抖时长（SPEC F2.3） */
+/** 搜索防抖时长（AGENTS.md §5.2） */
 const SEARCH_DEBOUNCE_MS = 300;
 /** 年度下拉里代表「不限」的值（select 的 value 只能是字符串） */
 const ANY_YEAR = "";
@@ -143,7 +143,7 @@ export class FilterBar {
 			attr: { type: "search", placeholder: "项目名关键字" },
 		});
 		this.searchInput = input;
-		// 输入即筛（300ms 防抖，SPEC F2.3），不再要求 Enter/失焦
+		// 输入即筛（300ms 防抖，AGENTS.md §5.2），不再要求 Enter/失焦
 		this.component.registerDomEvent(input, "input", () => {
 			this.scheduleSearch(input.value);
 		});

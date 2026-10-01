@@ -22,7 +22,7 @@ import {
 import { addTextFieldSetting } from "./suggestion-fields";
 
 /**
- * 新建项目 Modal（SPEC §4 F4.1 + 用户口径 2026-09-18 / 2026-09-20）。
+ * 新建项目 Modal（AGENTS.md §5.2 F4.1 + 用户口径 2026-09-18 / 2026-09-20）。
  *
  * 两种形态（这是数据模型的直接体现）：
  * - **带文件夹（正常项目）** → `<上级目录>/<项目名>/<项目名>.md`。

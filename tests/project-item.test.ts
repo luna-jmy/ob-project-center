@@ -44,7 +44,7 @@ describe("buildProjectItem — 数字型 frontmatter 值", () => {
 	});
 });
 
-describe("buildProjectItem — 识别规则（SPEC §2.1/§2.2）", () => {
+describe("buildProjectItem — 识别规则（AGENTS.md §5.2/§2.2）", () => {
 	it("builds an item for a type:project note with template fields", () => {
 		const result = buildProjectItem(fm(), fileInfo, DEFAULT_SETTINGS);
 		expect(result.item).not.toBeNull();
@@ -71,7 +71,7 @@ describe("buildProjectItem — 识别规则（SPEC §2.1/§2.2）", () => {
 	});
 
 	it("supports identifyTag as supplementary identification", () => {
-		// 无 type 字段但带识别标签（SPEC §5.2 identifyTag 默认 project）
+		// 无 type 字段但带识别标签（AGENTS.md §5.2 identifyTag 默认 project）
 		const result = buildProjectItem(
 			{ tags: ["project"] },
 			fileInfo,
@@ -87,7 +87,7 @@ describe("buildProjectItem — 识别规则（SPEC §2.1/§2.2）", () => {
 	});
 });
 
-describe("buildProjectItem — 规范化行为（SPEC §2.3）", () => {
+describe("buildProjectItem — 规范化行为（AGENTS.md §5.2）", () => {
 	it("maps chinese status alias to canonical value", () => {
 		const result = buildProjectItem(fm({ status: "执行中" }), fileInfo, DEFAULT_SETTINGS);
 		expect(result.item?.status).toBe("active");
@@ -194,7 +194,7 @@ describe("buildProjectItem — 规范化行为（SPEC §2.3）", () => {
 	});
 });
 
-describe("buildProjectItem — 参数分离（SPEC §5.2）", () => {
+describe("buildProjectItem — 参数分离（AGENTS.md §5.2）", () => {
 	it("reads physical fields through the field mapping", () => {
 		const settings = {
 			...DEFAULT_SETTINGS,

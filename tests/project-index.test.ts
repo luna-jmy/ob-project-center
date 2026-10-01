@@ -85,7 +85,7 @@ describe("ProjectIndex — 重命名", () => {
 	});
 });
 
-describe("ProjectIndex — 扫描范围（SPEC §2.1/§5.1）", () => {
+describe("ProjectIndex — 扫描范围（AGENTS.md §5.2/§5.1）", () => {
 	it("indexes only type:project notes inside scan folders", () => {
 		const index = makeIndex(
 			[
@@ -153,7 +153,7 @@ describe("ProjectIndex — 扫描范围（SPEC §2.1/§5.1）", () => {
 	});
 });
 
-describe("ProjectIndex — 增量更新（SPEC §3.1）", () => {
+describe("ProjectIndex — 增量更新（AGENTS.md §5.2）", () => {
 	let caches: Record<string, Record<string, unknown> | null>;
 
 	beforeEach(() => {
@@ -222,7 +222,7 @@ describe("ProjectIndex — 增量更新（SPEC §3.1）", () => {
 	});
 });
 
-describe("ProjectIndex — issues 透传（SPEC §2.3）", () => {
+describe("ProjectIndex — issues 透传（AGENTS.md §5.2）", () => {
 	it("collects data issues per file for UI repair hints", () => {
 		const index = makeIndex(
 			[file("100 Projects/A/bad.md")],

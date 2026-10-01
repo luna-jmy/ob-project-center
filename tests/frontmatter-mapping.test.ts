@@ -26,7 +26,7 @@ const RENAMED: FieldMappingConfig = {
 	identifyTag: "proj",
 };
 
-describe("编辑表单 → frontmatter patch（SPEC §5.2 单一映射层）", () => {
+describe("编辑表单 → frontmatter patch（AGENTS.md §5.2 单一映射层）", () => {
 	it("maps every logical field onto the physical name from the mapping", () => {
 		const values = { ...emptyEditorValues(), status: "active" as const, startDate: "2026-01-01" };
 		const patch = buildProjectPatch(values, RENAMED);
@@ -127,7 +127,7 @@ describe("已有值候选（编辑弹窗的下拉与点选标签）", () => {
 	});
 });
 
-describe("新建项目 patch（SPEC F4.1）", () => {
+describe("新建项目 patch（AGENTS.md §5.2）", () => {
 	it("adds the type flag and the identify tag", () => {
 		const patch = buildNewProjectPatch(emptyEditorValues(), DEFAULT_FIELD_MAPPING);
 		expect(patch["type"]).toBe("project");

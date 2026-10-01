@@ -155,7 +155,7 @@ describe("甘特模型 — 非工作日清单", () => {
 	});
 });
 
-describe("甘特模型 — 日期兜底（SPEC §2.3，继承 projectGantt.js ±7 天）", () => {
+describe("甘特模型 — 日期兜底（AGENTS.md §5.2，继承 projectGantt.js ±7 天）", () => {
 	it("keeps both dates as-is when present", () => {
 		const model = buildGanttModel(
 			[projectItem({ name: "a", startDate: "2026-01-01", dueDate: "2026-02-01" })],
@@ -229,7 +229,7 @@ describe("甘特模型 — 日期兜底（SPEC §2.3，继承 projectGantt.js ±
 /*
  * 状态与上图（2026-09-21）：**任何状态都不再被跳过**，取消的项目照常出现在甘特图上。
  *
- * 历史背景：SPEC F1.6 曾让「cancelled 默认排除」（继承旧脚本，由设置开关控制），
+ * 历史背景：AGENTS.md §5.2 曾让「cancelled 默认排除」（继承旧脚本，由设置开关控制），
  * 结果用户把项目改成取消后它就从图上消失，还找不到原因——而状态筛选里本来就有
  * 「取消」这个可选项，要不要显示它应该只有一个开关。这条测试固定住新口径。
  */
@@ -252,7 +252,7 @@ describe("甘特模型 — 状态不影响上图", () => {
 	});
 });
 
-describe("甘特模型 — 分节与范围（SPEC F1.1）", () => {
+describe("甘特模型 — 分节与范围（AGENTS.md §5.2）", () => {
 	it("groups rows by objective and only shows headers when there are several sections", () => {
 		const model = buildGanttModel(
 			[

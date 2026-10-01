@@ -8,7 +8,7 @@ import {
 } from "../src/services/normalize";
 
 /**
- * SPEC §2.3 数据规范化层 —— 行为基准来自 ref/projectOverview.js / ref/projectGantt.js。
+ * AGENTS.md §5.2 数据规范化层 —— 行为基准来自 ref/projectOverview.js / ref/projectGantt.js。
  */
 describe("normalizeStatus", () => {
 	it("passes canonical english statuses through", () => {

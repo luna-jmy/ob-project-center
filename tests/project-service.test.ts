@@ -12,7 +12,7 @@ import {
 
 // `obsidian` 由 vitest.config.ts 的 alias 指向 tests/obsidian-stub.ts（该包无运行时入口）。
 
-describe("标记块定位（SPEC F1.7 写入容错）", () => {
+describe("标记块定位（AGENTS.md §5.2 写入容错）", () => {
 	const START = "%% gantt-builder:start %%";
 	const END = "%% gantt-builder:end %%";
 	const FENCE = "```";

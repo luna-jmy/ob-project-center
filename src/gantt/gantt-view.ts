@@ -14,12 +14,12 @@ import { GanttModel, GanttRow } from "./gantt-model";
 import { TimeScale, buildTimeScale } from "./time-scale";
 
 /**
- * 交互式甘特视图（SPEC §4 F1、§6.1、§7）—— 自绘实现。
+ * 交互式甘特视图（AGENTS.md §5.2 F1、§6.1、§7）—— 自绘实现。
  *
  * 为什么自绘而不是 frappe-gantt：选型审计不通过（见 M3 审计记录）——
  * 该库用全局 `document` 创建节点，CSS 带 `:root` / `html[data-theme=dark]` 全局选择器与 `!important`，
- * 与 SPEC §6.1「构建产物不得引入全局选择器污染」、§7「popout 窗口 DOM 必须归属正确 ownerDocument」
- * 两条一票否决条款冲突。SPEC §11 已预置该降级路径（D4 fallback 自绘）。
+ * 与 AGENTS.md §4「构建产物不得引入全局选择器污染」、§7「popout 窗口 DOM 必须归属正确 ownerDocument」
+ * 两条一票否决条款冲突。AGENTS.md §5.2 已预置该降级路径（D4 fallback 自绘）。
  *
  * ── 事件模型：全部委托，监听器数量恒定 ──────────────────────────────
  * 本节视图会随每次刷新整体重渲染。如果按元素注册监听器，刷新 N 次就会往
@@ -33,7 +33,7 @@ import { TimeScale, buildTimeScale } from "./time-scale";
  *   `fill` / `background-color`，不走 CSS 变量中转（原因见 renderBody 的注释），
  *   而「按状态取默认色」仍由样式表统一管；
  * - 一切 createElement 都走 `root.ownerDocument`，popout 窗口安全；
- * - 拖拽在移动端禁用（SPEC §7：移动端降级为 Modal 编辑）。
+ * - 拖拽在移动端禁用（AGENTS.md §4：移动端降级为 Modal 编辑）。
  */
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -523,7 +523,7 @@ export class GanttView {
 			this.renderDurationLabel(host, row.durationLabel, x, width, barY, barHeight);
 		}
 
-		// 拖拽手柄：移动端不渲染（SPEC §7 拖拽降级 Modal）
+		// 拖拽手柄：移动端不渲染（AGENTS.md §4 拖拽降级 Modal）
 		if (!Platform.isMobile) {
 			for (const side of ["start", "end"] as const) {
 				const handle = this.svg("rect");
@@ -809,7 +809,7 @@ export class GanttView {
 			return;
 		}
 
-		if (Platform.isMobile) return; // SPEC §7：移动端不做日期拖拽
+		if (Platform.isMobile) return; // AGENTS.md §4：移动端不做日期拖拽
 
 		const el = this.elementOf(evt.target);
 		if (el === null) return;
@@ -1164,7 +1164,7 @@ export class GanttView {
 		);
 	}
 
-	/** 拖拽提示挂在甘特框架内，不用 document.body（SPEC §6.1 禁 body 注入） */
+	/** 拖拽提示挂在甘特框架内，不用 document.body（AGENTS.md §4 禁 body 注入） */
 	private showTooltip(evt: PointerEvent, text: string): void {
 		const frame = this.frame;
 		if (frame === null) return;

@@ -22,7 +22,7 @@ import {
 import { addListFieldSetting, addTextFieldSetting } from "./suggestion-fields";
 
 /**
- * 项目编辑 Modal（SPEC §4 F4.2/F4.3/F4.4）。
+ * 项目编辑 Modal（AGENTS.md §5.2 F4.2/F4.3/F4.4）。
  *
  * 约束：
  * - 字段名一律经映射层（buildProjectPatch），UI 不知道任何物理字段名；

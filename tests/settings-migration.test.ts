@@ -10,7 +10,7 @@ import {
 	ZOOM_MODES,
 } from "../src/types";
 
-describe("设置迁移 — 幂等与容错（SPEC §5.5/§8）", () => {
+describe("设置迁移 — 幂等与容错（AGENTS.md §5.2/§8）", () => {
 	it("fills in defaults for every missing field (v1 → v2 upgrade path)", () => {
 		const migrated = migrateSettings({ version: 1, scanFolders: ["Projects"] });
 		expect(migrated.version).toBe(SETTINGS_VERSION);

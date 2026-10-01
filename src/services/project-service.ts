@@ -3,7 +3,7 @@ import { t } from "../i18n";
 import { FieldMappingConfig } from "../types";
 
 /**
- * 项目写回服务（SPEC §4 F1.4 / F4.1 / F4.3 / F1.7）—— 唯一允许碰用户文件的层。
+ * 项目写回服务（AGENTS.md §5.2 F1.4 / F4.1 / F4.3 / F1.7）—— 唯一允许碰用户文件的层。
  *
  * 技能约束（compatibility.md「文件、元数据和并发」）：
  * - frontmatter 一律走 `FileManager.processFrontMatter`：只动自己的字段、保留其他字段；

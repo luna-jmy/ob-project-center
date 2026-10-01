@@ -2,7 +2,7 @@ import { t } from "../i18n";
 import { GroupSectionSpec, ProjectItem, ProjectMasterSettings } from "../types";
 
 /**
- * 分组服务（SPEC §4 F3/F4）—— 纯函数，零 Obsidian 依赖。
+ * 分组服务（AGENTS.md §5.2 F3/F4）—— 纯函数，零 Obsidian 依赖。
  *
  * ── 数据模型（按用户口径修正，2026-09-18）──────────────────────────────
  * 项目文件夹有两种形态：
@@ -98,7 +98,7 @@ export interface GroupingOptions {
 	folderNotes?: Record<string, NoteLink[]>;
 	/**
 	 * 索引内的全部项目文档路径。用于把项目文档从「资料/笔记」里剔除——
-	 * 项目文档不是资料（SPEC 用户口径 2026-09-18）。
+	 * 项目文档不是资料（AGENTS.md §5.2 用户口径 2026-09-18）。
 	 */
 	projectPaths?: string[];
 }

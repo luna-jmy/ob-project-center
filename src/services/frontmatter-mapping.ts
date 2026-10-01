@@ -5,7 +5,7 @@ import {
 } from "../types";
 
 /**
- * 编辑表单 ↔ frontmatter 的映射（SPEC §5.2 单一映射层）—— 纯函数。
+ * 编辑表单 ↔ frontmatter 的映射（AGENTS.md §5.2 单一映射层）—— 纯函数。
  *
  * 这里是「逻辑字段名 → 物理字段名」的唯一翻译点：编辑 Modal、新建 Modal、
  * 拖拽写回都经此转换，物理字段名绝不出现在 UI 代码里（agent.md §2.5 参数分离）。

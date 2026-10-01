@@ -4,7 +4,7 @@ import { isCriticalPriority } from "./bar-colors";
 import { GanttModel, GanttRow } from "./gantt-model";
 
 /**
- * Mermaid 导出器（SPEC §4 F1.7）—— 纯函数：视图状态 → mermaid 字符串。
+ * Mermaid 导出器（AGENTS.md §5.2 F1.7）—— 纯函数：视图状态 → mermaid 字符串。
  *
  * 输出格式逐条对齐 ref/projectGantt.js，保证新旧两套方案风格统一、可互相粘贴：
  * - `    title <标题>`（标题可配置，默认「项目进度甘特图」）；
@@ -20,7 +20,7 @@ import { GanttModel, GanttRow } from "./gantt-model";
  *    mermaid 解析器会报错或静默丢条；此处对重复 ID 追加 `-2`、`-3`。
  * 2. 清洗后为空的任务名回退为 ID——纯 emoji/标点文件名清洗后是空字符串，会渲染成空行。
  *
- * 数据方向是单向的（SPEC §1.2）：mermaid 只是导出目标，事实源始终是 frontmatter；
+ * 数据方向是单向的（AGENTS.md §5.2）：mermaid 只是导出目标，事实源始终是 frontmatter；
  * 用户手工改笔记里的 mermaid 块不会回流影响插件。
  */
 

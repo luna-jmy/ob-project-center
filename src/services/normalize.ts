@@ -1,7 +1,7 @@
 import { PROJECT_STATUSES, STATUS_CHINESE_ALIASES, ProjectStatus } from "../types";
 
 /**
- * 数据规范化层（SPEC §2.3）—— 纯函数，零 Obsidian 依赖。
+ * 数据规范化层（AGENTS.md §5.2）—— 纯函数，零 Obsidian 依赖。
  * 只读不改写用户数据；非法值显式标记（invalid），缺失值返回 null，两者严格区分。
  */
 
@@ -13,7 +13,7 @@ export type ParsedDate =
 
 /**
  * status 规范化：英文枚举直通；中文别名按开关映射；其余 null。
- * @param aliases 别名映射表（SPEC §5.3 可被设置覆盖）；省略时用模板默认表
+ * @param aliases 别名映射表（AGENTS.md §5.2 可被设置覆盖）；省略时用模板默认表
  */
 export function normalizeStatus(
 	raw: unknown,

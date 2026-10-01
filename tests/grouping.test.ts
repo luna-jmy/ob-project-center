@@ -234,7 +234,7 @@ describe("正常项目分区（F3.2，main-project 代表逻辑）", () => {
 	});
 });
 
-describe("分组模式（F4.1 / SPEC §5.4 defaultGrouping）", () => {
+describe("分组模式（F4.1 / AGENTS.md §5.2 defaultGrouping）", () => {
 	const settings: ProjectMasterSettings = {
 		...DEFAULT_SETTINGS,
 		defaultGrouping: "objective",

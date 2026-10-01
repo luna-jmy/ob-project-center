@@ -2,7 +2,7 @@ import { ZoomMode } from "../types";
 import { addDaysIso, daysInMonth, diffDaysIso, formatIso, parseIso } from "../utils/date";
 
 /**
- * 甘特时间轴刻度（SPEC §4 F1.2）—— 纯函数，零 DOM。
+ * 甘特时间轴刻度（AGENTS.md §5.2 F1.2）—— 纯函数，零 DOM。
  *
  * 自绘甘特的地基：把「日期」映射成「像素 x」，反之亦然（拖拽写回要用逆映射）。
  * 全部 UTC 运算，避免本地时区 DST 导致刻度错位。

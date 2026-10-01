@@ -10,7 +10,7 @@ import {
 import { ProjectItem, ProjectMasterSettings } from "../types";
 
 /**
- * 项目条目构建（SPEC §2.1–§2.3）—— 纯函数。
+ * 项目条目构建（AGENTS.md §5.2–§2.3）—— 纯函数。
  * 识别：type 字段 == "project" 或 tags 含 identifyTag；
  * 规范化只读不改写：非法值收集为 issues 供 UI 提示修复，缺失值为 null。
  */
@@ -117,7 +117,7 @@ export function buildProjectItem(
 
 /**
  * 日期字段解析：invalid → issue + null（缺失不 fallback：字段"没写"才走兜底链，
- * "写了但坏"必须显式暴露，不静默纠正——SPEC §2.3）。
+ * "写了但坏"必须显式暴露，不静默纠正——AGENTS.md §5.2）。
  */
 function parseDateField(
 	raw: unknown,

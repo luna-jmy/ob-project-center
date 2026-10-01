@@ -20,7 +20,7 @@ const REFRESH_DEBOUNCE_MS = 250;
 const INDEX_CHUNK_SIZE = 400;
 
 /**
- * Project Master — 薄装配层（SPEC §3）。
+ * Project Master — 薄装配层（AGENTS.md §5.2）。
  *
  * 职责边界：只做「注册、事件接线、索引编排、把数据递给视图」。
  * 业务规则全部在 services/（纯函数）、绘制全部在 views/panels/gantt。
@@ -123,7 +123,7 @@ export default class ProjectMasterPlugin extends Plugin implements DashboardHost
 
 	async loadSettings(): Promise<void> {
 		const data: unknown = await this.loadData();
-		// 迁移是「全函数」：永不抛错，逐字段降级，失败不丢用户其他配置（SPEC §5.5）
+		// 迁移是「全函数」：永不抛错，逐字段降级，失败不丢用户其他配置（AGENTS.md §5.2）
 		this.settings = migrateSettings(data);
 		// 配置目录不硬编码 .obsidian，运行时以 Vault#configDir 为准
 		this.settings = withConfigDir(this.settings, this.app.vault.configDir);

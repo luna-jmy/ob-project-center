@@ -9,7 +9,7 @@ import {
 import { addDaysIso, diffDaysIso, maxIso, minIso } from "../utils/date";
 
 /**
- * 甘特模型构建（SPEC §4 F1、§2.3）—— 纯函数，零 DOM / 零 Obsidian 依赖。
+ * 甘特模型构建（AGENTS.md §5.2 F1、§2.3）—— 纯函数，零 DOM / 零 Obsidian 依赖。
  *
  * 规则逐条继承 ref/projectGantt.js：
  * - cancelled 默认排除（F1.6，由设置开关控制）；
@@ -20,7 +20,7 @@ import { addDaysIso, diffDaysIso, maxIso, minIso } from "../utils/date";
  * - 分节按 objective，无 objective 落「默认项目」桶；
  * - 仅当分节数 > 1 才输出分节（脚本 `Object.keys(groupedPages).length > 1`）。
  *
- * 兜底只在渲染层生效（SPEC §2.3）：这里返回的 start/end 是**渲染用值**，
+ * 兜底只在渲染层生效（AGENTS.md §5.2）：这里返回的 start/end 是**渲染用值**，
  * 同时用 startFallback/endFallback 标记出来，UI 据此提示用户补全真实日期，
  * 写回 frontmatter 时也用这个标记决定该不该落盘（F1.4）。
  */

@@ -12,7 +12,7 @@ import { addDaysIso, daysInMonth, formatIso, todayIso } from "../utils/date";
 import { t } from "../i18n";
 
 /**
- * 筛选/排序管道（SPEC §4 F2）—— 纯函数，零 Obsidian 依赖。
+ * 筛选/排序管道（AGENTS.md §5.2 F2）—— 纯函数，零 Obsidian 依赖。
  * 规则表逐条转写自 ref/projectOverview.js / ref/projectGantt.js：
  * - 日期区间：完整区间取交集、仅 start 取「≥」、仅 end 取「≤」；
  * - long-term: true 豁免日期筛选；
@@ -79,7 +79,7 @@ export function defaultFilterState(): FilterState {
  * 视图初始筛选状态（打开 dashboard 时的默认值）。
  *
  * 三条业务默认：
- * - 隐藏已完成（SPEC F2.1，对齐现有脚本 `config.status = "hide"`）；
+ * - 隐藏已完成（AGENTS.md §5.2，对齐现有脚本 `config.status = "hide"`）；
  * - **开始年度 = 当前年度**（用户要求 2026-09-18：默认只看今年启动的项目，否则项目太多）；
  * - 区间/领域/搜索均不限。
  *

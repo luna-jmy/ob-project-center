@@ -18,9 +18,9 @@ import {
 } from "./types";
 
 /**
- * 设置迁移与清洗（SPEC §5.5）—— 纯函数。
+ * 设置迁移与清洗（AGENTS.md §5.2）—— 纯函数。
  *
- * 两条硬约束（技能 compatibility.md + SPEC §8）：
+ * 两条硬约束（技能 compatibility.md + AGENTS.md §7）：
  * 1. **可重复执行**：migrate(migrate(x)) 与 migrate(x) 结果一致（幂等）。
  * 2. **失败保留原数据**：本函数是「全函数」——永不抛异常，逐字段降级到默认值。
  *    某个字段损坏只损失该字段，不会把整份配置重置掉。

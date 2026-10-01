@@ -110,7 +110,7 @@ export interface DashboardHost {
 	readonly service: ProjectService;
 	/** 全量索引（未过滤） */
 	getProjects(): ProjectItem[];
-	/** 数据问题：path → issues（SPEC §2.3 UI 修复提示） */
+	/** 数据问题：path → issues（AGENTS.md §5.2 UI 修复提示） */
 	getIssues(): Record<string, DataIssue[]>;
 	/** 文件夹 → 全部笔记（分组面板的组内笔记列表用，F3.3） */
 	getFolderNotes(): Record<string, NoteLink[]>;
@@ -121,7 +121,7 @@ export interface DashboardHost {
 }
 
 /**
- * Dashboard 主视图（SPEC §3/F5）—— 布局组装与生命周期。
+ * Dashboard 主视图（AGENTS.md §5.2/F5）—— 布局组装与生命周期。
  *
  * 单向数据流（§3.1）：
  *   frontmatter → 索引/规范化 → filter/grouping 管道 → 渲染
@@ -993,7 +993,7 @@ export class DashboardView extends ItemView {
 		});
 	}
 
-	/** SPEC §2.3：非法数据显式提示修复，不静默纠正 */
+	/** AGENTS.md §5.2：非法数据显式提示修复，不静默纠正 */
 	private renderIssues(): void {
 		const host = this.issuesEl;
 		if (host === null) return;
